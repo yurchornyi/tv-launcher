@@ -11,8 +11,14 @@ permissions:
 jobs:
   lists-and-tools:
     name: Lists, tools and docs
-    runs-on: ubuntu-latest
+    # The owner's Mac (self-hosted runner tv-launcher-mac): GitHub-hosted
+    # runners do not start for this private repository.
+    runs-on: [self-hosted, tv-launcher-mac]
     steps:
+      # On power the Mac sleeps after a minute, and a sleeping runner loses
+      # GitHub mid-job. caffeinate holds it awake while the job runs.
+      - name: Keep the Mac awake
+        run: nohup caffeinate -ims >/dev/null 2>&1 &
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -28,8 +34,14 @@ jobs:
 
   launcher:
     name: Launcher build and unit tests
-    runs-on: ubuntu-latest
+    # The owner's Mac (self-hosted runner tv-launcher-mac): GitHub-hosted
+    # runners do not start for this private repository.
+    runs-on: [self-hosted, tv-launcher-mac]
     steps:
+      # On power the Mac sleeps after a minute, and a sleeping runner loses
+      # GitHub mid-job. caffeinate holds it awake while the job runs.
+      - name: Keep the Mac awake
+        run: nohup caffeinate -ims >/dev/null 2>&1 &
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
@@ -46,6 +58,6 @@ jobs:
           ./gradlew --no-daemon testReleaseUnitTest lintRelease assembleRelease
       - name: The launcher stays small
         run: |
-          size=$(stat -c %s launcher/app/build/outputs/apk/release/app-release.apk)
+          size=$(wc -c < launcher/app/build/outputs/apk/release/app-release.apk | tr -d " ")
           echo "release APK: $((size / 1024)) KB"
           test "$size" -lt 524288 || { echo "APK is over 512 KB; the launcher targets 1 GB TVs, keep it small"; exit 1; }
