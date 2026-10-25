@@ -761,6 +761,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         Backup.importIfChanged(this);   // a backup.json put in the files folder (restore) before anything reads
         Backup.applyDefaultsIfFresh(this);   // a new TV starts from the owner's usual shelf and channel choices
         SelfSetup.ensure(this);   // the sleep timer and Now Playing stay switched on, update after update
+        HomeKeeper.start(this);   // Home outlives TCL's cleaner and comes up when the TV wakes
         Config cfg = Config.load(this);
         settingsKeycodes = cfg.settingsKeycodes;
         settingsKeyPanel = cfg.settingsKeyPanel;

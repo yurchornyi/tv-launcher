@@ -22,6 +22,9 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- The full-screen player keeps the screen on, with no screensaver, while it is up (MainActivity.holdScreen). -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Home stays alive in the background (HomeKeeper): TCL force-stops a cached launcher once a minute. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- The sleep timer's alarms (SleepTimer): Android 14 refuses even setAlarmClock without an exact-alarm right.
          USE_EXACT_ALARM is granted at install from API 33; SCHEDULE_EXACT_ALARM covers 31-32. -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
@@ -223,6 +226,16 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/shared_files" />
         </provider>
+
+        <!-- Keeps Home alive while an app is in front and opens it when the TV wakes (HomeKeeper). -->
+        <service
+            android:name=".HomeKeeper"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the TV launcher alive while another app is in front" />
+        </service>
 
         <!-- The installer's answer about a self-update (Updater, UpdateReceiver). -->
         <receiver
