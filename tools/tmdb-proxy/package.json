@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --import ./test/register.mjs --test test/*.test.mjs"
+    "test": "node --import ./test/register.mjs --test test/*.test.mjs",
+    "check:bundle": "npx -y wrangler@4 deploy --dry-run --outdir .wrangler/dry-run",
+    "validate": "npm test && npm run check:bundle",
+    "deploy:cloudflare-build": "bash cloudflare-deploy.sh"
   }
 }
