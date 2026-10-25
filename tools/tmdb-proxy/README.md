@@ -9,9 +9,15 @@ When TMDB, Kick, Kyivstar TV or the Spotify charts are down or change their answ
 200 (the TV keeps the posters it has and asks again later), and `console.error` names the failure, which is what
 Sentra's monitoring watches. Tests: `npm test` here (Node 22), also run by `python3 -m unittest discover -s tests`.
 
-Deploy or change the key: put it in `launcher/local.properties` as `tmdb.key=...`, then run
-`tools/tmdb-proxy/deploy.sh` (wrangler, logged in to Cloudflare once with `npx wrangler login`). TVs need no update
-for a new key.
+Deploy: Cloudflare Workers Builds (Workers & Pages → `tv-launcher-tmdb` → Settings → Build, repository
+`yurchornyi/tv-launcher`, root directory `tools/tmdb-proxy`). A push to `main` that changes `tools/tmdb-proxy/` runs
+`npm run deploy:cloudflare-build` (`cloudflare-deploy.sh`: tests, `wrangler deploy --tag <commit SHA>`, a check that
+`/` answers); other branches and PRs only run `npm run validate` (tests and a dry-run bundle), shown as a GitHub check.
+No Mac and no Cloudflare token in GitHub; the Worker's secrets stay as they are across deploys.
+
+Change the key: put it in `launcher/local.properties` as `tmdb.key=...`, then run `tools/tmdb-proxy/deploy.sh` (wrangler,
+logged in to Cloudflare once with `npx wrangler login`); it is also the manual fallback deploy. TVs need no update for a
+new key.
 
 ## AI (ai.js)
 
