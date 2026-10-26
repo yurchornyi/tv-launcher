@@ -33,6 +33,7 @@ const SHELVES = [
   ['/3/trending/all/week?language=uk-UA', (j) => assert.deepEqual(j.results, [])],
   ['/3/discover/movie?with_networks=213', (j) => assert.deepEqual(j.results, [])],
   ['/3/movie/603/images', (j) => assert.deepEqual(j.backdrops, [])],
+  ['/3/movie/771', (j) => assert.deepEqual(j, {})],
   ['/3/search/multi?query=%D0%A1%D1%96%D0%BC%D0%BF%D1%81%D0%BE%D0%BD%D0%B8', (j) => assert.deepEqual(j.results, [])],
   ['/kick/featured?lang=en', (j) => assert.deepEqual(j.items, [])],
   ['/kyivstar/popular', (j) => assert.deepEqual(j.items, [])],
@@ -60,6 +61,13 @@ test('a title search passes the query on to TMDB', async () => {
   assert.equal(r.status, 200);
   assert.equal(new URL(asked).searchParams.get('query'), 'Сімпсони');
   assert.equal(new URL(asked).searchParams.get('evil'), null);
+});
+
+test('a film\'s details pass on', async () => {
+  globalThis.fetch = async () => Response.json({ id: 771, runtime: 103 });
+  const r = await worker.fetch(new Request(BASE + '/3/movie/771?language=uk-UA'), { TMDB_KEY: 'k'.repeat(32) }, ctx);
+  assert.equal((await r.json()).runtime, 103);
+  assert.equal(errors.length, 0);
 });
 
 test('a TMDB list that works is passed on and cached', async () => {

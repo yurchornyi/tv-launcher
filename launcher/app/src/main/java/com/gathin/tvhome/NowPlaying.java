@@ -293,7 +293,9 @@ final class NowPlaying {
                 if (cover == null) CoverArt.fetch(uri, () -> main.post(() -> { described.clear(); pick(); }));
             }
         }
-        // A video app with a title only (KIK, HDRezka): the film's poster from TMDB.
+        long duration = m.getLong(MediaMetadata.METADATA_KEY_DURATION);
+        // A video app with a title only (KIK, HDRezka): the film's poster and running time from TMDB.
+        if (duration <= 0 && posterProxy != null && video(ctx, c.getPackageName())) duration = Poster.runtime(title);
         if (cover == null && posterProxy != null && video(ctx, c.getPackageName())) {
             String poster = Poster.cached(title);
             if (poster != null) {
@@ -313,7 +315,7 @@ final class NowPlaying {
             }
             labels.put(c.getPackageName(), app);
         }
-        return new Track(title, artist, app, c.getPackageName(), cover, m.getLong(MediaMetadata.METADATA_KEY_DURATION),
+        return new Track(title, artist, app, c.getPackageName(), cover, duration,
                 state(c) == PlaybackState.STATE_PLAYING);
     }
 

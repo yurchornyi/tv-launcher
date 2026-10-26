@@ -159,6 +159,7 @@
             android:importantForAccessibility="no" />
 
         <LinearLayout
+            android:id="@+id/npText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="26dp"
@@ -230,12 +231,12 @@
                     android:paddingEnd="22dp"
                     android:background="@drawable/np_resume_bg"
                     android:text="@string/continue_watching"
-                    android:textColor="#FF111111"
+                    android:textColor="@drawable/pill_text"
                     android:textSize="16sp"
                     android:fontFamily="@font/outfit_medium"
                     android:letterSpacing="0.01"
                     android:drawableStart="@drawable/ic_np_play"
-                    android:drawableTint="#FF111111"
+                    android:drawableTint="@drawable/pill_text"
                     android:drawablePadding="8dp" />
 
                 <TextView

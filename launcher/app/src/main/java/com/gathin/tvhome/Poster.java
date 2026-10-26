@@ -29,6 +29,8 @@ final class Poster {
     private static final String BACKDROPS = "https://image.tmdb.org/t/p/w1280";
     /** Title → poster URL, "" when TMDB has none. */
     private static final Map<String, String> found = new HashMap<>();
+    /** Title → running time in minutes (a film's, or a series' usual episode), for how much is left to watch. */
+    private static final Map<String, Integer> minutes = new HashMap<>();
     private static final Set<String> asking = new HashSet<>();
 
     private Poster() { }
@@ -37,6 +39,12 @@ final class Poster {
     static synchronized String cached(String title) {
         String url = found.get(clean(title));
         return url == null || url.isEmpty() ? null : url;
+    }
+
+    /** The title's running time in milliseconds, or 0 when TMDB gave none. */
+    static synchronized long runtime(String title) {
+        Integer m = minutes.get(clean(title));
+        return m == null ? 0 : m * 60_000L;
     }
 
     /** Asks TMDB on a worker thread; `done` runs (on that thread) once a poster URL is known. */
@@ -49,6 +57,7 @@ final class Poster {
         String base = proxy.trim().endsWith("/") ? proxy.trim() : proxy.trim() + "/";
         new Thread(() -> {
             String url = "";
+            int length = 0;
             try {
                 java.util.Locale l = java.util.Locale.getDefault();
                 String lang = l.getLanguage() + (l.getCountry().isEmpty() ? "" : "-" + l.getCountry());
@@ -58,6 +67,7 @@ final class Poster {
                 // "Один удома" (KIK's name for it). A title spelled exactly the same wins; otherwise the best known.
                 int best = -1;
                 boolean bestExact = false;
+                String details = null;
                 for (int i = 0; results != null && i < results.length(); i++) {
                     JSONObject r = results.getJSONObject(i);
                     String type = r.optString("media_type");
@@ -71,6 +81,20 @@ final class Poster {
                         best = votes;
                         bestExact = exact;
                         url = wide.startsWith("/") ? BACKDROPS + wide : POSTERS + path;
+                        details = type + "/" + r.optLong("id");
+                    }
+                }
+                // Its running time: a film's runtime, a series' episode length (the last aired one's, else the usual).
+                if (details != null) {
+                    try {
+                        JSONObject d = new JSONObject(get(base + "3/" + details));
+                        length = d.optInt("runtime");
+                        JSONObject last = d.optJSONObject("last_episode_to_air");
+                        if (length <= 0 && last != null) length = last.optInt("runtime");
+                        JSONArray usual = d.optJSONArray("episode_run_time");
+                        if (length <= 0 && usual != null && usual.length() > 0) length = usual.optInt(0);
+                    } catch (Exception e) {
+                        Log.w(TAG, "details failed: " + e);   // the picture still shows, without what is left
                     }
                 }
             } catch (Exception e) {
@@ -83,6 +107,7 @@ final class Poster {
             synchronized (Poster.class) {
                 asking.remove(query);
                 found.put(query, url);
+                if (length > 0) minutes.put(query, length);
             }
             if (!url.isEmpty()) done.run();
         }, "poster").start();

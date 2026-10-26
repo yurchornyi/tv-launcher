@@ -1,27 +1,51 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Continue watching on the Now Playing card of a film: the one thing to do, so always a white capsule; focus makes
-     it fully opaque with a soft ring. -->
-<selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_focused="true">
-        <layer-list>
-            <item>
-                <shape android:shape="rectangle">
-                    <solid android:color="#40FFFFFF" />
-                    <corners android:radius="23dp" />
-                </shape>
+<!-- Continue watching on the Now Playing card of a film, in the dark glass of the close button beside it. It fills
+     as far as the film was watched (the clip's level, set and animated by MainActivity; full when the length is
+     unknown). In focus it turns white with a soft ring, the watched part a shade darker. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <selector>
+            <item android:state_focused="true">
+                <layer-list>
+                    <item>
+                        <shape android:shape="rectangle">
+                            <solid android:color="#40FFFFFF" />
+                            <corners android:radius="23dp" />
+                        </shape>
+                    </item>
+                    <item android:left="2dp" android:top="2dp" android:right="2dp" android:bottom="2dp">
+                        <shape android:shape="rectangle">
+                            <solid android:color="#FFFFFFFF" />
+                            <corners android:radius="21dp" />
+                        </shape>
+                    </item>
+                </layer-list>
             </item>
             <item android:left="2dp" android:top="2dp" android:right="2dp" android:bottom="2dp">
                 <shape android:shape="rectangle">
-                    <solid android:color="#FFFFFFFF" />
+                    <solid android:color="#59000000" />
+                    <stroke android:width="1.5dp" android:color="#59FFFFFF" />
                     <corners android:radius="21dp" />
                 </shape>
             </item>
-        </layer-list>
+        </selector>
     </item>
-    <item android:left="2dp" android:top="2dp" android:right="2dp" android:bottom="2dp">
-        <shape android:shape="rectangle">
-            <solid android:color="#D9FFFFFF" />
-            <corners android:radius="21dp" />
-        </shape>
+    <item android:id="@+id/npResumeFill" android:left="2dp" android:top="2dp" android:right="2dp" android:bottom="2dp">
+        <clip android:clipOrientation="horizontal" android:gravity="start">
+            <selector>
+                <item android:state_focused="true">
+                    <shape android:shape="rectangle">
+                        <solid android:color="#26000000" />
+                        <corners android:radius="21dp" />
+                    </shape>
+                </item>
+                <item>
+                    <shape android:shape="rectangle">
+                        <solid android:color="#47FFFFFF" />
+                        <corners android:radius="21dp" />
+                    </shape>
+                </item>
+            </selector>
+        </clip>
     </item>
-</selector>
+</layer-list>

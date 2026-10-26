@@ -17,7 +17,9 @@ const ALLOWED = [
   /^\/3\/discover\/(movie|tv)$/,
   /^\/3\/(movie|tv)\/\d{1,9}\/(images|external_ids)$/,
   /^\/3\/search\/multi$/,   // the poster of what a video app plays (NowPlaying), by its title
+  /^\/3\/(movie|tv)\/\d{1,9}$/,   // and its running time, for how much is left
 ];
+const DETAILS = /^\/3\/(movie|tv)\/\d{1,9}$/;
 const PASSED = ['language', 'region', 'with_networks', 'with_watch_providers', 'watch_region', 'with_origin_country',
   'sort_by', 'include_image_language', 'page', 'query'];
 const TTL = 6 * 60 * 60;
@@ -29,7 +31,7 @@ const TTL = 6 * 60 * 60;
 function tmdbEmpty(path, why) {
   if (why) console.error('tmdb shelf empty', path, why);
   const body = path.endsWith('/images') ? { backdrops: [] }
-    : path.endsWith('/external_ids') ? {}
+    : path.endsWith('/external_ids') || DETAILS.test(path) ? {}
       : { page: 1, results: [], total_pages: 0, total_results: 0 };
   return new Response(JSON.stringify(body), {
     headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
@@ -124,9 +126,11 @@ export default {
     } catch (e) {
       return tmdbEmpty(url.pathname, e instanceof Error ? `${e.name}: ${e.message}` : String(e));
     }
-    const list = !/\/(images|external_ids)$/.test(url.pathname);
+    const list = !/\/(images|external_ids)$/.test(url.pathname) && !DETAILS.test(url.pathname);
     if (!data || typeof data !== 'object' || (list ? !Array.isArray(data.results) : url.pathname.endsWith('/images')
-      && !Array.isArray(data.backdrops))) return tmdbEmpty(url.pathname, 'unexpected shape');
+      && !Array.isArray(data.backdrops)) || (DETAILS.test(url.pathname) && typeof data.id !== 'number')) {
+      return tmdbEmpty(url.pathname, 'unexpected shape');
+    }
     // Only the JSON travels on: TMDB's own headers (its CDN's ids, cookies) stay behind.
     response = new Response(JSON.stringify(data), {
       headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=' + TTL },

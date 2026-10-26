@@ -29,6 +29,10 @@
     <string name="add_accessory">Підключити пристрій</string>
     <string name="now_playing">Зараз грає</string>
     <string name="continue_watching">Продовжити перегляд</string>
+    <!-- Continue watching with what is left of the film: «Продовжити · ще 1 год 12 хв». -->
+    <string name="continue_left">Продовжити · ще %s</string>
+    <string name="left_hours">%1$d год %2$d хв</string>
+    <string name="left_minutes">%d хв</string>
     <!-- The foreground service that keeps Home alive (HomeKeeper); its notification is the minimum Android shows. -->
     <string name="home_keeper">Головний екран працює</string>
     <string name="profiles" translatable="false">Profiles</string>

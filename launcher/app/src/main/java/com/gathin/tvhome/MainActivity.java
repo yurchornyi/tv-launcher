@@ -4071,6 +4071,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                     : square ? new BitmapDrawable(getResources(), ShelfFeed.glow(t.cover)) : NowPlaying.soft(this, t.cover);
         }
         npCover.setVisibility(t.cover != null && !npWide ? View.VISIBLE : View.GONE);
+        // Without the cover the words start where the clock and the dock do, not a cover's gap further right.
+        View text = findViewById(R.id.npText);
+        ViewGroup.MarginLayoutParams tm = (ViewGroup.MarginLayoutParams) text.getLayoutParams();
+        int gap = npCover.getVisibility() == View.VISIBLE ? Math.round(26 * density) : 0;
+        if (tm.getMarginStart() != gap) {
+            tm.setMarginStart(gap);
+            text.setLayoutParams(tm);
+        }
         if (npBackdrop != null && heroArtShown != npBackdrop) {
             heroArt.animate().cancel();
             heroArt.setScaleType(ImageView.ScaleType.FIT_XY);
@@ -4104,14 +4112,72 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 npCard.setAlpha(1f);
             }
         }
+        // Continue watching fills up to where the film was left, as the card arrives or once its length is known.
+        fillResume(arriving || npFillLevel < 0 || !t.title.equals(npFillTitle));
         updateNowPlayingProgress();
         handler.removeCallbacks(npTick);
         handler.postDelayed(npTick, 1000);
         return true;
     }
 
+    /** How far Continue watching is filled (0..10000), -1 before a film's length is known. */
+    private int npFillLevel = -1;
+    private String npFillTitle;
+    private android.animation.ValueAnimator npFillAnim;
+
+    /**
+     * Continue watching for a film: filled with white as far as it was watched, with the time left in its text
+     * («Продовжити · ще 38 хв»). Without a length (TMDB did not know it) the button is plain and full.
+     */
+    private void fillResume(boolean animate) {
+        NowPlaying.Track t = nowPlaying.track();
+        TextView resume = findViewById(R.id.npResume);
+        if (t == null || resume.getVisibility() != View.VISIBLE) return;
+        Drawable fill = ((android.graphics.drawable.LayerDrawable) resume.getBackground())
+                .findDrawableByLayerId(R.id.npResumeFill);
+        int level;
+        if (t.duration > 0) {
+            long pos = Math.max(0, Math.min(t.duration, nowPlaying.position()));
+            level = (int) (pos * 10000 / t.duration);
+            long left = Math.max(1, (t.duration - pos + 59_999) / 60_000);
+            String time = left >= 60 ? getString(R.string.left_hours, (int) (left / 60), (int) (left % 60))
+                    : getString(R.string.left_minutes, (int) left);
+            resume.setText(getString(R.string.continue_left, time));
+        } else {
+            level = 10000;
+            resume.setText(R.string.continue_watching);
+        }
+        if (!t.title.equals(npFillTitle)) {   // another film: its own sweep
+            npFillTitle = t.title;
+            npFillLevel = -1;
+        }
+        boolean first = npFillLevel < 0 && t.duration > 0;
+        if (t.duration > 0) npFillLevel = level;
+        if (npFillAnim != null && npFillAnim.isRunning()) {
+            if (!animate) return;   // the second's tick leaves the sweep to finish
+            npFillAnim.cancel();
+        }
+        if (animate && animations && !reducedMotion && (first || fill.getLevel() != level)) {
+            // A sweep from empty to the place the film was left, slowing as it arrives.
+            npFillAnim = android.animation.ValueAnimator.ofInt(0, level);
+            npFillAnim.setDuration(1100);
+            npFillAnim.setStartDelay(250);
+            npFillAnim.setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f));
+            npFillAnim.addUpdateListener(a -> fill.setLevel((int) a.getAnimatedValue()));
+            fill.setLevel(0);
+            npFillAnim.start();
+        } else {
+            fill.setLevel(level);
+        }
+    }
+
     private void updateNowPlayingProgress() {
         NowPlaying.Track t = nowPlaying.track();
+        if (t != null && NowPlaying.video(this, t.pkg)) {
+            npProgress.setVisibility(View.GONE);   // the Continue watching button shows it instead
+            fillResume(false);
+            return;
+        }
         if (t == null || t.duration <= 0) {
             npProgress.setVisibility(View.GONE);
             return;
@@ -4121,6 +4187,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     }
 
     private void hideNowPlaying(boolean animate) {
+        npFillLevel = -1;   // the next time the card comes, the button fills again
         handler.removeCallbacks(npTick);
         if (npCard.getVisibility() != View.VISIBLE) return;
         boolean hadFocus = npCard.hasFocus();
