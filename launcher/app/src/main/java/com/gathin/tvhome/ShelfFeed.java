@@ -55,6 +55,8 @@ final class ShelfFeed {
         final boolean live;
         /** TMDB's original title and first year, "" when unknown: they pick the right film in KIK's catalogue. */
         String original = "", year = "";
+        /** Where it was left and its length in ms (a channel program's playback position), 0 when not started. */
+        long position, duration;
 
         Item(String title, String backdrop, String open, String type, long id) {
             this(title, backdrop, open, type, id, false);

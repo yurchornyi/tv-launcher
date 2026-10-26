@@ -64,7 +64,9 @@ final class ChannelFeed {
         }
         new Thread(() -> {
             List<ShelfFeed.Item> got = read(pkg);
-            Log.i(TAG, pkg + ": " + got.size() + " programs");
+            int placed = 0;
+            for (ShelfFeed.Item i : got) if (i.duration > 0) placed++;
+            Log.i(TAG, pkg + ": " + got.size() + " programs, " + placed + " with a place to continue from");
             main.post(() -> {
                 readAt.put(pkg, System.currentTimeMillis());
                 lists.put(pkg, got);
@@ -107,7 +109,9 @@ final class ChannelFeed {
             try (Cursor c = ctx.getContentResolver().query(programsUri,
                     new String[]{TvContract.PreviewPrograms.COLUMN_CHANNEL_ID, TvContract.PreviewPrograms.COLUMN_TITLE,
                             TvContract.PreviewPrograms.COLUMN_POSTER_ART_URI, TvContract.PreviewPrograms.COLUMN_INTENT_URI,
-                            TvContract.PreviewPrograms.COLUMN_LIVE, TvContract.PreviewPrograms.COLUMN_WEIGHT},
+                            TvContract.PreviewPrograms.COLUMN_LIVE, TvContract.PreviewPrograms.COLUMN_WEIGHT,
+                            TvContract.PreviewPrograms.COLUMN_LAST_PLAYBACK_POSITION_MILLIS,
+                            TvContract.PreviewPrograms.COLUMN_DURATION_MILLIS},
                     null, null, null)) {
                 while (c != null && c.moveToNext()) {
                     if (!channels.contains(c.getLong(0))) continue;
@@ -116,6 +120,8 @@ final class ChannelFeed {
                     if (title == null || title.isEmpty() || poster == null || !poster.startsWith("http")) continue;
                     if (ShelfFeed.never(title)) continue;
                     ShelfFeed.Item item = new ShelfFeed.Item(title, poster, c.getString(3), "", 0, c.getInt(4) != 0);
+                    item.position = c.isNull(6) ? 0 : c.getLong(6);   // KIK's Continue: where it was left
+                    item.duration = c.isNull(7) ? 0 : c.getLong(7);
                     List<Object[]> row = byChannel.get(c.getLong(0));
                     if (row == null) byChannel.put(c.getLong(0), row = new ArrayList<>());
                     row.add(new Object[]{item, c.getInt(5)});

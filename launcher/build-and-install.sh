@@ -190,4 +190,6 @@ if [ "${INPUT_KEY_SERVICE:-0}" = 1 ]; then enable_service InputKeyService; fi
 if [ "${HOME_KEY_SERVICE:-0}" = 1 ]; then enable_service HomeKeyService; fi
 # The sleep timer's service (SleepService) is always on: it only puts the TV to sleep when the timer runs out.
 enable_service SleepService
-echo "Installed. Press Home on the remote to see it."
+# The install closed the old Home: without this, Android shows the app used before it (Netflix, say) instead.
+"$PY" -I ../tools/tv.py 'input keyevent KEYCODE_HOME' >/dev/null || true
+echo "Installed: Home is on the screen."

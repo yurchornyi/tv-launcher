@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- How far a title was watched, over the shelf's Continue pill (pill_bg): its level is set and swept by MainActivity.
+     A shade on the white pill in focus, a lighter glass at rest; the same as Continue watching on the Now Playing card. -->
+<clip xmlns:android="http://schemas.android.com/apk/res/android"
+    android:clipOrientation="horizontal"
+    android:gravity="start">
+    <selector>
+        <item android:state_focused="true">
+            <shape android:shape="rectangle">
+                <solid android:color="#26000000" />
+                <corners android:radius="21dp" />
+            </shape>
+        </item>
+        <item>
+            <shape android:shape="rectangle">
+                <solid android:color="#47FFFFFF" />
+                <corners android:radius="21dp" />
+            </shape>
+        </item>
+    </selector>
+</clip>

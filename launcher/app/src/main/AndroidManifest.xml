@@ -216,6 +216,16 @@
             </intent-filter>
         </service>
 
+        <!-- KIK tells the Now Playing card what it plays (PlayerReport): the card's source where Android hides media
+             sessions (a low-RAM TV). Sent to this package only. -->
+        <receiver
+            android:name=".PlayerReport"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.gathin.tvhome.action.NOW_PLAYING" />
+            </intent-filter>
+        </receiver>
+
         <!-- Hands SmartTube the account's backup of its settings as a zip it can read (AppSettings). -->
         <provider
             android:name="androidx.core.content.FileProvider"

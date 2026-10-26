@@ -136,10 +136,12 @@
         android:paddingEnd="22dp"
         android:drawablePadding="10dp"
         android:text="@string/watch_now"
+        android:fontFamily="sans-serif-medium"
         android:drawableStart="@drawable/ic_np_play" />
 
     <!-- Now Playing card on the top shelf (NowPlaying): cover, title, artist and app, progress. Positioned above the
-         dock in code; shown instead of the posters while something plays. -->
+         dock in code; shown instead of the posters while something plays. Its words are in the system's sans-serif:
+         Outfit has no Cyrillic, and a TV whose own fallback looks different (TCL) mixed it with Outfit's digits. -->
     <LinearLayout
         android:id="@+id/nowPlaying"
         android:layout_width="wrap_content"
@@ -173,7 +175,7 @@
                 android:letterSpacing="0.18"
                 android:textColor="#99FFFFFF"
                 android:textSize="13sp"
-                android:fontFamily="@font/outfit_medium" />
+                android:fontFamily="sans-serif-medium" />
 
             <TextView
                 android:id="@+id/npTitle"
@@ -185,7 +187,7 @@
                 android:ellipsize="end"
                 android:textColor="#FFFFFFFF"
                 android:textSize="32sp"
-                android:fontFamily="@font/outfit_regular"
+                android:fontFamily="sans-serif"
                 android:includeFontPadding="false" />
 
             <TextView
@@ -198,7 +200,7 @@
                 android:ellipsize="end"
                 android:textColor="#B3FFFFFF"
                 android:textSize="18sp"
-                android:fontFamily="@font/outfit_regular" />
+                android:fontFamily="sans-serif" />
 
             <ProgressBar
                 android:id="@+id/npProgress"
@@ -233,7 +235,7 @@
                     android:text="@string/continue_watching"
                     android:textColor="@drawable/pill_text"
                     android:textSize="16sp"
-                    android:fontFamily="@font/outfit_medium"
+                    android:fontFamily="sans-serif-medium"
                     android:letterSpacing="0.01"
                     android:drawableStart="@drawable/ic_np_play"
                     android:drawableTint="@drawable/pill_text"

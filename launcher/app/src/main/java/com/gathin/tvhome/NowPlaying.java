@@ -54,6 +54,12 @@ final class NowPlaying {
     private boolean closed;
     /** When it was closed: a player answering the pause with a last "playing" state must not reopen it. */
     private long closedAt;
+    /** The same moment by the wall clock, which reports (PlayerReport) carry: only a newer report reopens it. */
+    private long closedWall;
+    /** Reports from players (PlayerReport) count here: the launcher's card, not the screensaver. */
+    private boolean reports;
+    /** The report the card shows when no session does (a low-RAM TV hides sessions), else null. */
+    private PlayerReport.Report reported;
 
     /**
      * Each session's track as last read. A player reports its state many times a second while seeking or buffering,
@@ -97,6 +103,15 @@ final class NowPlaying {
         }
     }
 
+    /**
+     * What players tell the card themselves (PlayerReport, KIK): shown when no media session is, and its picture,
+     * episode and length added to the player's own session when there is one.
+     */
+    void useReports() {
+        reports = true;
+        PlayerReport.listen(() -> main.post(() -> { described.clear(); pick(); }));
+    }
+
     void start() {
         msm = (MediaSessionManager) ctx.getSystemService(Context.MEDIA_SESSION_SERVICE);
         ComponentName me = new ComponentName(ctx, NowPlayingListener.class);
@@ -104,7 +119,8 @@ final class NowPlaying {
             msm.addOnActiveSessionsChangedListener(sessions, me, main);
             watch(msm.getActiveSessions(me));
         } catch (SecurityException e) {
-            msm = null;   // no notification access: stay quiet
+            msm = null;   // no notification access (Android denies it on a low-RAM TV): only reports show
+            pick();
         }
     }
 
@@ -146,6 +162,7 @@ final class NowPlaying {
 
     /** Playback position now, extrapolated from the last state the app reported. */
     long position() {
+        if (current == null && reported != null) return reported.position;
         PlaybackState s;
         try {
             s = current != null ? current.getPlaybackState() : null;
@@ -212,6 +229,19 @@ final class NowPlaying {
         // describe() reads the metadata again; a player that just let its session go returns none, then nothing shows.
         Track next = found == null ? null : describe(found);
         if (next == null) found = null;
+        // A player's own report: the card itself where no session shows (and none was closed since), else what it
+        // adds to that player's session (KIK's sends the title only).
+        PlayerReport.Report r = reports ? PlayerReport.latest(ctx) : null;
+        reported = null;
+        if (r != null && next == null && (!closed || r.at > closedWall)) {
+            closed = false;
+            reported = r;
+            next = new Track(r.title, r.subtitle, label(r.pkg), r.pkg, reportPicture(r), r.duration, false);
+        } else if (r != null && next != null && next.pkg.equals(r.pkg) && next.title.equals(r.title)) {
+            Bitmap picture = reportPicture(r);
+            next = new Track(next.title, next.artist.isEmpty() ? r.subtitle : next.artist, next.app, next.pkg,
+                    picture != null ? picture : next.cover, next.duration > 0 ? next.duration : r.duration, next.playing);
+        }
         boolean same = next != null && track != null && next.title.equals(track.title) && next.artist.equals(track.artist);
         // Players resend the same cover as a new bitmap with every metadata update; keep the first one for the
         // track, so the card does not rebuild its backdrop (a visible flicker) on each update.
@@ -302,21 +332,45 @@ final class NowPlaying {
                 cover = CoverArt.cached(poster);
                 if (cover == null) CoverArt.fetch(poster, () -> main.post(() -> { described.clear(); pick(); }));
             } else {
-                Poster.find(posterProxy, title, () -> main.post(() -> { described.clear(); pick(); }));
+                Poster.find(posterProxy, title, null, () -> main.post(() -> { described.clear(); pick(); }));
             }
         }
-        String app = labels.get(c.getPackageName());
-        if (app == null) {
-            app = c.getPackageName();
-            try {
-                PackageManager pm = ctx.getPackageManager();
-                app = String.valueOf(pm.getApplicationLabel(pm.getApplicationInfo(c.getPackageName(), 0)));
-            } catch (PackageManager.NameNotFoundException ignored) {
-            }
-            labels.put(c.getPackageName(), app);
-        }
+        String app = label(c.getPackageName());
         return new Track(title, artist, app, c.getPackageName(), cover, duration,
                 state(c) == PlaybackState.STATE_PLAYING);
+    }
+
+    /** The app's name as the launcher shows it. */
+    private String label(String pkg) {
+        String app = labels.get(pkg);
+        if (app == null) {
+            app = pkg;
+            try {
+                PackageManager pm = ctx.getPackageManager();
+                app = String.valueOf(pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)));
+            } catch (PackageManager.NameNotFoundException ignored) {
+            }
+            labels.put(pkg, app);
+        }
+        return app;
+    }
+
+    /** The report's picture once downloaded (null until then; the card updates when it arrives). */
+    private Bitmap reportPicture(PlayerReport.Report r) {
+        String url = r.backdrop;
+        // No wide frame from the player: TMDB's for the title (Poster), and the player's poster until then.
+        if (url.isEmpty() && posterProxy != null) {
+            url = Poster.cached(r.title);
+            if (url == null) {
+                Poster.find(posterProxy, r.title, r.original, () -> main.post(() -> { described.clear(); pick(); }));
+                url = r.poster;
+            }
+        }
+        if (url == null || url.isEmpty()) url = r.poster;
+        if (url.isEmpty()) return null;
+        Bitmap b = CoverArt.cached(url);
+        if (b == null) CoverArt.fetch(url, () -> main.post(() -> { described.clear(); pick(); }));
+        return b;
     }
 
     private static int state(MediaController c) {
@@ -403,6 +457,10 @@ final class NowPlaying {
      * them (KIK does), and the film should go on, not wait for another OK.
      */
     boolean openAndResume() {
+        // A player that reported itself knows its own way back (KIK), even after Android closed it.
+        PlayerReport.Report r = reports && track != null ? PlayerReport.latest(ctx) : null;
+        if (r != null && r.pkg.equals(track.pkg) && r.title.equals(track.title) && PlayerReport.open(ctx, r)) return true;
+        if (track != null) PlayerReport.resume(ctx, track.pkg);   // the player plays as it comes back (KIK)
         MediaController c = current;
         boolean opened = openPlayer();
         if (c != null) {
@@ -424,6 +482,7 @@ final class NowPlaying {
         send(MediaController.TransportControls::pause);
         closed = true;
         closedAt = SystemClock.elapsedRealtime();
+        closedWall = System.currentTimeMillis();
         pick();
     }
 

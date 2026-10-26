@@ -47,8 +47,11 @@ final class Poster {
         return m == null ? 0 : m * 60_000L;
     }
 
-    /** Asks TMDB on a worker thread; `done` runs (on that thread) once a poster URL is known. */
-    static void find(String proxy, String title, Runnable done) {
+    /**
+     * Asks TMDB on a worker thread; `done` runs (on that thread) once a poster URL is known. `original` (the player's
+     * original title, may be null) is asked when the title finds nothing: TMDB has no Ukrainian name for many shows.
+     */
+    static void find(String proxy, String title, String original, Runnable done) {
         String query = clean(title);
         if (proxy == null || proxy.trim().isEmpty() || query.isEmpty()) return;
         synchronized (Poster.class) {
@@ -61,8 +64,11 @@ final class Poster {
             try {
                 java.util.Locale l = java.util.Locale.getDefault();
                 String lang = l.getLanguage() + (l.getCountry().isEmpty() ? "" : "-" + l.getCountry());
-                JSONArray results = new JSONObject(get(base + "3/search/multi?query=" + URLEncoder.encode(query, "UTF-8")
-                        + "&language=" + lang)).optJSONArray("results");
+                String alt = clean(original);
+                JSONArray results = search(base, query, lang);
+                if ((results == null || results.length() == 0) && !alt.isEmpty() && !alt.equalsIgnoreCase(query)) {
+                    results = search(base, alt, lang);
+                }
                 // TMDB ranks by its own relevance, which puts a little-known "1+1 удома" before Home Alone for
                 // "Один удома" (KIK's name for it). A title spelled exactly the same wins; otherwise the best known.
                 int best = -1;
@@ -74,8 +80,9 @@ final class Poster {
                     String path = r.optString("poster_path", "");
                     String wide = r.optString("backdrop_path", "");
                     if (!("movie".equals(type) || "tv".equals(type)) || !(path.startsWith("/") || wide.startsWith("/"))) continue;
-                    boolean exact = same(query, r.optString("title", r.optString("name")))
-                            || same(query, r.optString("original_title", r.optString("original_name")));
+                    String name = r.optString("title", r.optString("name")),
+                            first = r.optString("original_title", r.optString("original_name"));
+                    boolean exact = same(query, name) || same(query, first) || (!alt.isEmpty() && same(alt, first));
                     int votes = r.optInt("vote_count");
                     if (best < 0 || (exact && !bestExact) || (exact == bestExact && votes > best)) {
                         best = votes;
@@ -113,15 +120,23 @@ final class Poster {
         }, "poster").start();
     }
 
-    /** The show's own name, without the season or episode a player may add ("Сімпсони. Сезон 3, серія 5"). */
+    /**
+     * The show's own name, without the season or episode a player may add ("Сімпсони. Сезон 3, серія 5") or the
+     * second name KIK gives after a slash ("Шлях безсмертного / Подорож до безсмертя").
+     */
     static String clean(String title) {
         if (title == null) return "";
-        String t = title.split("(?i)\\s*([.,:|(\\[–—-]\\s*)?(сезон|season|серія|серия|episode|s\\d{1,2}\\s*e\\d)")[0];
+        String t = title.split("\\s+/\\s+")[0].split("(?i)\\s*([.,:|(\\[–—-]\\s*)?(сезон|season|серія|серия|episode|s\\d{1,2}\\s*e\\d)")[0];
         return t.replaceAll("[\\s.,:|–—-]+$", "").trim();
     }
 
     private static boolean same(String a, String b) {
         return a.replaceAll("[^\\p{L}\\p{N}]+", "").equalsIgnoreCase(b.replaceAll("[^\\p{L}\\p{N}]+", ""));
+    }
+
+    private static JSONArray search(String base, String query, String lang) throws Exception {
+        return new JSONObject(get(base + "3/search/multi?query=" + URLEncoder.encode(query, "UTF-8") + "&language=" + lang))
+                .optJSONArray("results");
     }
 
     private static String get(String url) throws Exception {

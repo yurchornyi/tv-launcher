@@ -100,4 +100,6 @@ function Enable-Service([string]$Name) {
 }
 if ($InputKeyService) { Enable-Service 'InputKeyService' }
 if ($HomeKeyService) { Enable-Service 'HomeKeyService' }
-Write-Host 'Installed. Press Home on the remote to see it.'
+# The install closed the old Home: without this, Android shows the app used before it (Netflix, say) instead.
+& $py -I ..\tools\tv.py 'input keyevent KEYCODE_HOME' | Out-Null
+Write-Host 'Installed: Home is on the screen.'

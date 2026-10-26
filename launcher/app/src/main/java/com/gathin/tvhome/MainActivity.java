@@ -171,6 +171,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private String pendingSearch;
     /** The poster put first on an app's shelf: the film or video opened last there (Recents); its pill says Continue. */
     private ShelfFeed.Item continueItem;
+    /** The watched part on the shelf's pill, and its sweep. */
+    private android.graphics.drawable.ClipDrawable shelfFill;
+    private android.animation.ValueAnimator shelfFillAnim;
     private static final int VOICE_REQUEST = 43;
     private static final int RECORD_AUDIO_REQUEST = 44;
     private static final int TV_LISTINGS_REQUEST = 45;
@@ -812,6 +815,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         shelfTitle = findViewById(R.id.shelfTitle);
         searchNote = findViewById(R.id.searchNote);
         shelfOpen = findViewById(R.id.shelfOpen);
+        // The Watch pill's glass with the watched part of a Continue over it (fillShelfPill).
+        shelfFill = (android.graphics.drawable.ClipDrawable) getDrawable(R.drawable.pill_fill);
+        shelfOpen.setBackground(new android.graphics.drawable.LayerDrawable(new Drawable[]{shelfOpen.getBackground(), shelfFill}));
         shelfLive = findViewById(R.id.shelfLive);
         shelfChannelsScroll = findViewById(R.id.shelfChannelsScroll);
         shelfChannels = findViewById(R.id.shelfChannels);
@@ -910,6 +916,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         npProgress = findViewById(R.id.npProgress);
         nowPlaying = new NowPlaying(this, this::onNowPlayingChanged);
         nowPlaying.findPosters(getString(R.string.tmdb_proxy));
+        nowPlaying.useReports();
         npPlay = findViewById(R.id.npPlay);
         npButtons = new View[]{findViewById(R.id.npResume), findViewById(R.id.npPrev), npPlay, findViewById(R.id.npNext), findViewById(R.id.npExpand),
                 findViewById(R.id.npOpen), findViewById(R.id.npClose)};
@@ -2331,6 +2338,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         return true;
     }
 
+    /** The same TMDB picture (its file name), whatever size or address it was asked at. */
+    private static boolean samePicture(String a, String b) {
+        if (a == null || b == null) return false;
+        String fa = a.substring(a.lastIndexOf('/') + 1), fb = b.substring(b.lastIndexOf('/') + 1);
+        return fa.length() > 8 && fa.equals(fb);
+    }
+
     /**
      * The film or video opened last in this app (Recents) put first, so the shelf opens on it and its pill says
      * Continue; the list's own copy of it, if any, is dropped. The list as it came when nothing was opened there.
@@ -2355,8 +2369,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         List<ShelfFeed.Item> out = new ArrayList<>();
         out.add(continueItem);
         for (ShelfFeed.Item i : items) {
-            boolean same = continueItem.open != null ? continueItem.open.equals(i.open) : continueItem.title.equals(i.title);
+            boolean same = (continueItem.open != null ? continueItem.open.equals(i.open) : continueItem.title.equals(i.title))
+                    || samePicture(continueItem.backdrop, i.backdrop);   // "Один вдома" here, "Один удома" in KIK
             if (!same) out.add(i);
+            else if (i.duration > 0) {   // the app's copy knows where it was left
+                continueItem.position = i.position;
+                continueItem.duration = i.duration;
+            }
         }
         return out;
     }
@@ -2984,8 +3003,35 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             title = id != null && !id.isEmpty();
         }
         if (!title) return 0;
-        if (item == continueItem) return R.string.continue_row;
+        if (item == continueItem || item.position > 0 && item.duration > 0) return R.string.continue_row;
         return ShelfFeed.music(pkg) ? R.string.listen_now : R.string.watch_now;
+    }
+
+    /**
+     * A Continue on the shelf with its place known (KIK's channel): «Продовжити · ще 47 хв», the pill swept full up to
+     * where it was left, as Continue watching on the Now Playing card is. Anything else: no fill.
+     */
+    private void fillShelfPill(ShelfFeed.Item item, boolean resume) {
+        if (shelfFillAnim != null) shelfFillAnim.cancel();
+        if (!resume || item.duration <= 0 || item.position <= 0 || item.position >= item.duration) {
+            shelfFill.setLevel(0);
+            return;
+        }
+        long left = Math.max(1, (item.duration - item.position + 59_999) / 60_000);
+        shelfOpen.setText(getString(R.string.continue_left, left >= 60
+                ? getString(R.string.left_hours, (int) (left / 60), (int) (left % 60)) : getString(R.string.left_minutes, (int) left)));
+        int level = (int) (item.position * 10000 / item.duration);
+        if (!animations || reducedMotion) {
+            shelfFill.setLevel(level);
+            return;
+        }
+        shelfFillAnim = android.animation.ValueAnimator.ofInt(0, level);
+        shelfFillAnim.setDuration(1100);
+        shelfFillAnim.setStartDelay(250);
+        shelfFillAnim.setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f));
+        shelfFillAnim.addUpdateListener(a -> shelfFill.setLevel((int) a.getAnimatedValue()));
+        shelfFill.setLevel(0);
+        shelfFillAnim.start();
     }
 
     /** Whether the poster on the shelf now has a button (see shelfLabel). */
@@ -3895,6 +3941,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 shelfTitle.setText(tidy);
                 int label = shelfLabel(pkg, item);
                 if (label != 0) shelfOpen.setText(label);
+                fillShelfPill(item, label == R.string.continue_row);
                 if (song) showAsSong(tidy);
                 else playerPill(false);
                 // Netflix: whether the title can be opened is known once its Netflix id is looked up (once per title).
