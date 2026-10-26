@@ -11,21 +11,13 @@ permissions:
 jobs:
   lists-and-tools:
     name: Lists, tools and docs
-    # The owner's Mac (self-hosted runner tv-launcher-mac): GitHub-hosted
-    # runners do not start for this private repository.
-    runs-on: [self-hosted, tv-launcher-mac]
+    # This public repository can use GitHub-hosted CI without loading either personal computer.
+    runs-on: ubuntu-latest
     steps:
-      # On power the Mac sleeps after a minute, and a sleeping runner loses
-      # GitHub mid-job. caffeinate holds it awake while the job runs.
-      - name: Keep the Mac awake
-        run: nohup caffeinate -ims >/dev/null 2>&1 &
       - uses: actions/checkout@v4
-      # setup-python cannot install on a self-hosted Mac (its installer writes to
-      # /Users/runner); uv, already on the Mac, provides the same CPython 3.12.
-      - name: Python 3.12
-        run: |
-          uv python install 3.12
-          dirname "$(uv python find --managed-python 3.12)" >> "$GITHUB_PATH"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Tools virtualenv
         run: |
           python3 -m venv tools/venv
@@ -33,18 +25,13 @@ jobs:
       - name: Example lists, README tables, shell helpers
         env:
           TV_LAUNCHER_STRICT: ${{ github.event_name == 'push' && '1' || '' }}
-        run: python3 -m unittest discover -s tests -v
+        run: tools/venv/bin/python -m unittest discover -s tests -v
 
   launcher:
     name: Launcher build and unit tests
-    # The owner's Mac (self-hosted runner tv-launcher-mac): GitHub-hosted
-    # runners do not start for this private repository.
-    runs-on: [self-hosted, tv-launcher-mac]
+    # This public repository can use GitHub-hosted CI without loading either personal computer.
+    runs-on: ubuntu-latest
     steps:
-      # On power the Mac sleeps after a minute, and a sleeping runner loses
-      # GitHub mid-job. caffeinate holds it awake while the job runs.
-      - name: Keep the Mac awake
-        run: nohup caffeinate -ims >/dev/null 2>&1 &
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
