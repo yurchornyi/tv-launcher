@@ -65,7 +65,7 @@ final class ChannelFeed {
         new Thread(() -> {
             List<ShelfFeed.Item> got = read(pkg);
             int placed = 0;
-            for (ShelfFeed.Item i : got) if (i.duration > 0) placed++;
+            for (ShelfFeed.Item i : got) if (i.position > 0 && i.duration > 0) placed++;
             Log.i(TAG, pkg + ": " + got.size() + " programs, " + placed + " with a place to continue from");
             main.post(() -> {
                 readAt.put(pkg, System.currentTimeMillis());
@@ -75,7 +75,35 @@ final class ChannelFeed {
         }, "channel-feed").start();
     }
 
+    /** `adb shell setprop log.tag.TvHome.Chan DEBUG`: every channel and program the app publishes, with places. */
+    private void dump(String pkg) {
+        String[] cols = {TvContract.PreviewPrograms.COLUMN_CHANNEL_ID, TvContract.PreviewPrograms.COLUMN_TITLE,
+                TvContract.PreviewPrograms.COLUMN_LAST_PLAYBACK_POSITION_MILLIS, TvContract.PreviewPrograms.COLUMN_DURATION_MILLIS,
+                TvContract.PreviewPrograms.COLUMN_INTENT_URI, TvContract.PreviewPrograms.COLUMN_POSTER_ART_URI};
+        for (Uri uri : new Uri[]{TvContract.Channels.CONTENT_URI, TvContract.PreviewPrograms.CONTENT_URI,
+                TvContract.WatchNextPrograms.CONTENT_URI}) {
+            Uri q = uri.buildUpon().appendQueryParameter("package", pkg).build();
+            boolean channels = uri == TvContract.Channels.CONTENT_URI;
+            try (Cursor c = ctx.getContentResolver().query(q, channels ? new String[]{TvContract.Channels._ID,
+                    TvContract.Channels.COLUMN_DISPLAY_NAME, TvContract.Channels.COLUMN_INTERNAL_PROVIDER_ID} : cols,
+                    null, null, null)) {
+                Log.d("TvHome.Chan", pkg + " " + uri.getLastPathSegment() + ": " + (c == null ? "null" : c.getCount()));
+                for (int n = 0; c != null && c.moveToNext() && n < 40; n++) {
+                    StringBuilder sb = new StringBuilder("  ");
+                    for (int k = 0; k < c.getColumnCount(); k++) {
+                        String v = c.getString(k);
+                        sb.append(v == null ? "-" : v.length() > 90 ? v.substring(0, 90) : v).append(" | ");
+                    }
+                    Log.d("TvHome.Chan", sb.toString());
+                }
+            } catch (RuntimeException e) {
+                Log.d("TvHome.Chan", pkg + " " + uri.getLastPathSegment() + ": " + e);
+            }
+        }
+    }
+
     private List<ShelfFeed.Item> read(String pkg) {
+        if (Log.isLoggable("TvHome.Chan", Log.DEBUG)) dump(pkg);
         List<ShelfFeed.Item> out = new ArrayList<>();
         java.util.Map<Long, List<Object[]>> byChannel = new java.util.LinkedHashMap<>();
         try {

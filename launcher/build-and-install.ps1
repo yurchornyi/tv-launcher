@@ -60,7 +60,7 @@ $disableStock = if ($StockLauncher -eq 'none') { 'echo stock launcher left alone
 $apk = 'app\build\outputs\apk\release\app-release.apk'
 & $py -I ..\tools\b64push.py $apk /data/local/tmp/tvhome.apk
 if ($LASTEXITCODE -ne 0) { throw 'APK upload failed' }
-$out = & $py -I ..\tools\tv.py 'pm install -r /data/local/tmp/tvhome.apk; rm -f /data/local/tmp/tvhome.apk'
+$out = & $py -I ..\tools\tv.py 'pm install -r /data/local/tmp/tvhome.apk; rm -f /data/local/tmp/tvhome.apk; input keyevent KEYCODE_HOME'
 Write-Host $out
 if ("$out" -notmatch 'Success') { throw 'pm install failed; the stock launcher was left untouched' }
 # Android 9 only accepts a component here; Android 10+ also takes a bare package name.

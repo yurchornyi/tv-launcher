@@ -67,7 +67,7 @@ APK=app/build/outputs/apk/release/app-release.apk
 # The launcher must be its own installer of record: Android installs an update without asking only for the app that
 # installed it, so a launcher installed by adb would show "Update this app?" at every self-update. A fresh install
 # cannot name a package that is not there yet, so the same APK goes in once more naming the launcher (-i).
-OUT=$("$PY" -I ../tools/tv.py 'pm install -r /data/local/tmp/tvhome.apk && { dumpsys package com.gathin.tvhome | grep -q "installerPackageName=com.gathin.tvhome" || pm install -r -i com.gathin.tvhome /data/local/tmp/tvhome.apk; }; rm -f /data/local/tmp/tvhome.apk')
+OUT=$("$PY" -I ../tools/tv.py 'pm install -r /data/local/tmp/tvhome.apk && { dumpsys package com.gathin.tvhome | grep -q "installerPackageName=com.gathin.tvhome" || pm install -r -i com.gathin.tvhome /data/local/tmp/tvhome.apk; }; rm -f /data/local/tmp/tvhome.apk; input keyevent KEYCODE_HOME')
 echo "$OUT"
 case "$OUT" in
   *Success*) ;;
@@ -190,6 +190,7 @@ if [ "${INPUT_KEY_SERVICE:-0}" = 1 ]; then enable_service InputKeyService; fi
 if [ "${HOME_KEY_SERVICE:-0}" = 1 ]; then enable_service HomeKeyService; fi
 # The sleep timer's service (SleepService) is always on: it only puts the TV to sleep when the timer runs out.
 enable_service SleepService
-# The install closed the old Home: without this, Android shows the app used before it (Netflix, say) instead.
+# The install closed the old Home, and Android shows the app used before it (Netflix, say) until Home is pressed:
+# once right after the install, and again here after the steps that follow.
 "$PY" -I ../tools/tv.py 'input keyevent KEYCODE_HOME' >/dev/null || true
 echo "Installed: Home is on the screen."

@@ -3003,7 +3003,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             title = id != null && !id.isEmpty();
         }
         if (!title) return 0;
-        if (item == continueItem || item.position > 0 && item.duration > 0) return R.string.continue_row;
+        // Started and not near its end (a video watched to its credits is watched, not to continue).
+        if (item == continueItem || item.position > 0 && item.position < item.duration * 0.95) return R.string.continue_row;
         return ShelfFeed.music(pkg) ? R.string.listen_now : R.string.watch_now;
     }
 
