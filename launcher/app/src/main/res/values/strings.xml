@@ -28,6 +28,7 @@
     <string name="vpn">VPN</string>
     <string name="add_accessory">Підключити пристрій</string>
     <string name="now_playing">Зараз грає</string>
+    <string name="continue_watching">Продовжити перегляд</string>
     <!-- The foreground service that keeps Home alive (HomeKeeper); its notification is the minimum Android shows. -->
     <string name="home_keeper">Головний екран працює</string>
     <string name="profiles" translatable="false">Profiles</string>

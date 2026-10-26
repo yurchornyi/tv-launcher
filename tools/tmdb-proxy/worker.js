@@ -16,9 +16,10 @@ const ALLOWED = [
   /^\/3\/movie\/popular$/,
   /^\/3\/discover\/(movie|tv)$/,
   /^\/3\/(movie|tv)\/\d{1,9}\/(images|external_ids)$/,
+  /^\/3\/search\/multi$/,   // the poster of what a video app plays (NowPlaying), by its title
 ];
 const PASSED = ['language', 'region', 'with_networks', 'with_watch_providers', 'watch_region', 'with_origin_country',
-  'sort_by', 'include_image_language', 'page'];
+  'sort_by', 'include_image_language', 'page', 'query'];
 const TTL = 6 * 60 * 60;
 
 /**

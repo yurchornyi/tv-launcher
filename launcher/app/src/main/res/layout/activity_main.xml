@@ -208,7 +208,8 @@
                 android:max="1000"
                 android:progressDrawable="@drawable/now_playing_progress" />
 
-            <!-- Previous, play/pause, next, close: Up from the dock reaches them. -->
+            <!-- Previous, play/pause, next, close: Up from the dock reaches them. A video gets Continue watching and
+                 close instead (MainActivity.showNowPlaying). -->
             <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -216,6 +217,26 @@
                 android:clipChildren="false"
                 android:clipToPadding="false"
                 android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/npResume"
+                    android:layout_width="wrap_content"
+                    android:layout_height="46dp"
+                    android:layout_gravity="center_vertical"
+                    android:visibility="gone"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:paddingStart="18dp"
+                    android:paddingEnd="22dp"
+                    android:background="@drawable/np_resume_bg"
+                    android:text="@string/continue_watching"
+                    android:textColor="#FF111111"
+                    android:textSize="16sp"
+                    android:fontFamily="@font/outfit_medium"
+                    android:letterSpacing="0.01"
+                    android:drawableStart="@drawable/ic_np_play"
+                    android:drawableTint="#FF111111"
+                    android:drawablePadding="8dp" />
 
                 <TextView
                     android:id="@+id/npPrev"

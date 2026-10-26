@@ -52,14 +52,16 @@ final class CoverArt {
                 BitmapFactory.Options o = new BitmapFactory.Options();
                 o.inJustDecodeBounds = true;
                 BitmapFactory.decodeByteArray(data, 0, data.length, o);
+                // A film's wide frame fills the screen (Poster): it keeps 1280 px; a square cover needs no more than 800.
+                int max = o.outWidth > o.outHeight * 13 / 10 ? 1280 : 800;
                 int sample = 1;
-                while (o.outWidth / (sample * 2) >= 800) sample *= 2;
+                while (o.outWidth / (sample * 2) >= max) sample *= 2;
                 o = new BitmapFactory.Options();
                 o.inSampleSize = sample;
                 o.inPreferredConfig = Bitmap.Config.ARGB_8888;
                 bmp = BitmapFactory.decodeByteArray(data, 0, data.length, o);
-                if (bmp != null && bmp.getWidth() > 800) {
-                    bmp = Bitmap.createScaledBitmap(bmp, 800, 800 * bmp.getHeight() / bmp.getWidth(), true);
+                if (bmp != null && bmp.getWidth() > max) {
+                    bmp = Bitmap.createScaledBitmap(bmp, max, max * bmp.getHeight() / bmp.getWidth(), true);
                 }
             } catch (Exception | OutOfMemoryError e) {   // an OutOfMemoryError here would take the launcher down
                 Log.w(TAG, "cover failed: " + e);

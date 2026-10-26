@@ -199,6 +199,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private NowPlaying nowPlaying;
     private View npCard;
     private ImageView npCover;
+    /** The card's picture is a film's wide frame filling the screen behind it, not shown in the card itself. */
+    private boolean npWide;
     private TextView npTitle, npArtist;
     private android.widget.ProgressBar npProgress;
     private TextView npPlay;
@@ -907,9 +909,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         npArtist = findViewById(R.id.npArtist);
         npProgress = findViewById(R.id.npProgress);
         nowPlaying = new NowPlaying(this, this::onNowPlayingChanged);
+        nowPlaying.findPosters(getString(R.string.tmdb_proxy));
         npPlay = findViewById(R.id.npPlay);
-        npButtons = new View[]{findViewById(R.id.npPrev), npPlay, findViewById(R.id.npNext), findViewById(R.id.npExpand),
+        npButtons = new View[]{findViewById(R.id.npResume), findViewById(R.id.npPrev), npPlay, findViewById(R.id.npNext), findViewById(R.id.npExpand),
                 findViewById(R.id.npOpen), findViewById(R.id.npClose)};
+        findViewById(R.id.npResume).setOnClickListener(v -> {
+            NowPlaying.Track t = nowPlaying.track();
+            if (!nowPlaying.openAndResume() && t != null) launchApp(t.pkg);
+        });
         findViewById(R.id.npOpen).setOnClickListener(v -> {
             NowPlaying.Track t = nowPlaying.track();
             if (!nowPlaying.openPlayer() && t != null) launchApp(t.pkg);
@@ -925,8 +932,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 focusTile(lastFocused % COLUMNS);
                 return true;
             }
-            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) return v == npButtons[0];
-            if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) return v == npButtons[npButtons.length - 1];
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) return v == npEdge(true);
+            if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) return v == npEdge(false);
             if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
                 findViewById(R.id.btnSettings).requestFocus();
                 return true;
@@ -4004,6 +4011,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
      * The Now Playing card while a track plays: its cover sharp on the left and blurred across the shelf, title,
      * artist with the app, a progress bar ticking each second. False when nothing plays.
      */
+    /** The card's first (left) or last visible button: the row's ends, where Left or Right stays put. */
+    private View npEdge(boolean first) {
+        View edge = null;
+        for (View b : npButtons) {
+            if (b.getVisibility() != View.VISIBLE) continue;
+            if (edge == null || !first) edge = b;
+        }
+        return edge != null ? edge : npPlay;
+    }
+
     private boolean showNowPlaying() {
         NowPlaying.Track t = nowPlaying.track();
         if (t == null) {
@@ -4017,8 +4034,20 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         shelfTitle.setAlpha(0f);
         shelfLive.setAlpha(0f);
         showShelfOpen(false, false);
-        // Full screen only with a cover (showAmbient): no button that does nothing.
-        findViewById(R.id.npExpand).setVisibility(t.cover != null ? View.VISIBLE : View.GONE);
+        // A film or series: Continue watching (back to it, playing) and close; skipping and the full screen are for
+        // music. Full screen only with a cover (showAmbient): no button that does nothing.
+        boolean video = NowPlaying.video(this, t.pkg);
+        int music = video ? View.GONE : View.VISIBLE;
+        boolean wasOnCard = npCard.hasFocus();
+        findViewById(R.id.npResume).setVisibility(video ? View.VISIBLE : View.GONE);
+        findViewById(R.id.npPrev).setVisibility(music);
+        npPlay.setVisibility(music);
+        findViewById(R.id.npNext).setVisibility(music);
+        findViewById(R.id.npOpen).setVisibility(music);
+        findViewById(R.id.npExpand).setVisibility(!video && t.cover != null ? View.VISIBLE : View.GONE);
+        // Beside Continue watching, close is a matching dark glass circle; with the music buttons, one of them.
+        findViewById(R.id.npClose).setBackgroundResource(video ? R.drawable.np_round_bg : R.drawable.icon_button_bg);
+        if (wasOnCard && !npCard.hasFocus()) npEdge(true).requestFocus();   // its button went with the switch
         npTitle.setText(t.title);
         fitTitle(npTitle, 32f, 24f);
         npPlay.setCompoundDrawablesRelativeWithIntrinsicBounds(t.playing ? R.drawable.ic_np_pause : R.drawable.ic_np_play, 0, 0, 0);
@@ -4026,13 +4055,22 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (t.cover != npCoverShown) {
             npCoverShown = t.cover;
             npCover.setImageBitmap(t.cover);
+            // A film's poster whole, as tall as it is; a song's cover (or a video's frame) in the square.
+            boolean tall = t.cover != null && t.cover.getHeight() > t.cover.getWidth() * 1.2f;
+            ViewGroup.LayoutParams lp = npCover.getLayoutParams();
+            lp.width = Math.round((tall ? 150 : 132) * density);
+            lp.height = tall ? Math.min(Math.round(150 * density * t.cover.getHeight() / t.cover.getWidth()),
+                    Math.round(240 * density)) : lp.width;
+            npCover.setLayoutParams(lp);
             // A song's square cover: behind the player a field of its colours, not the cover a second time (the
-            // card shows it); a video's frame is softened as before.
+            // card shows it). A film's wide frame (Poster) fills the top of the screen sharp, as the shelf's
+            // posters do, and is not repeated in the card; any other video frame is softened.
             boolean square = t.cover != null && Math.abs(t.cover.getWidth() - t.cover.getHeight()) * 10 < t.cover.getWidth();
-            npBackdrop = t.cover == null ? null : square
-                    ? new BitmapDrawable(getResources(), ShelfFeed.glow(t.cover)) : NowPlaying.soft(this, t.cover);
+            npWide = video && t.cover != null && t.cover.getWidth() > t.cover.getHeight() * 1.3f;
+            npBackdrop = t.cover == null ? null : npWide ? new CropDrawable(new BitmapDrawable(getResources(), t.cover))
+                    : square ? new BitmapDrawable(getResources(), ShelfFeed.glow(t.cover)) : NowPlaying.soft(this, t.cover);
         }
-        npCover.setVisibility(t.cover != null ? View.VISIBLE : View.GONE);
+        npCover.setVisibility(t.cover != null && !npWide ? View.VISIBLE : View.GONE);
         if (npBackdrop != null && heroArtShown != npBackdrop) {
             heroArt.animate().cancel();
             heroArt.setScaleType(ImageView.ScaleType.FIT_XY);
@@ -4358,7 +4396,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                     return true;
                 }
                 if (npCard.getVisibility() == View.VISIBLE && npCard.getAlpha() > 0f && !npHiding) {
-                    npPlay.requestFocus();
+                    (npPlay.getVisibility() == View.VISIBLE ? npPlay : npEdge(true)).requestFocus();
                     grid.playSoundEffect(SoundEffectConstants.NAVIGATION_UP);
                     return true;
                 }

@@ -62,6 +62,8 @@ final class NowPlaying {
      */
     private final java.util.Map<Object, Track> described = new java.util.HashMap<>();
     private final java.util.Map<String, String> labels = new java.util.HashMap<>();
+    /** The Worker that finds a video's poster by its title (Poster); null in the screensaver, which shows none. */
+    private String posterProxy;
 
     private final MediaController.Callback callback = new MediaController.Callback() {
         @Override public void onPlaybackStateChanged(PlaybackState state) { pick(); }
@@ -74,6 +76,25 @@ final class NowPlaying {
     NowPlaying(Context ctx, Listener listener) {
         this.ctx = ctx;
         this.listener = listener;
+    }
+
+    /** Posters for videos that send none, found through this Worker (config.xml tmdb_proxy). */
+    void findPosters(String proxy) {
+        posterProxy = proxy;
+    }
+
+    /**
+     * A video app rather than a music one: its card offers to go back to the film, not to skip tracks. Music is
+     * Spotify and YouTube Music (ShelfFeed.music) and any app that calls itself an audio app.
+     */
+    static boolean video(Context ctx, String pkg) {
+        if (pkg == null || ShelfFeed.music(pkg)) return false;
+        try {
+            return ctx.getPackageManager().getApplicationInfo(pkg, 0).category
+                    != android.content.pm.ApplicationInfo.CATEGORY_AUDIO;
+        } catch (PackageManager.NameNotFoundException e) {
+            return true;
+        }
     }
 
     void start() {
@@ -272,6 +293,16 @@ final class NowPlaying {
                 if (cover == null) CoverArt.fetch(uri, () -> main.post(() -> { described.clear(); pick(); }));
             }
         }
+        // A video app with a title only (KIK, HDRezka): the film's poster from TMDB.
+        if (cover == null && posterProxy != null && video(ctx, c.getPackageName())) {
+            String poster = Poster.cached(title);
+            if (poster != null) {
+                cover = CoverArt.cached(poster);
+                if (cover == null) CoverArt.fetch(poster, () -> main.post(() -> { described.clear(); pick(); }));
+            } else {
+                Poster.find(posterProxy, title, () -> main.post(() -> { described.clear(); pick(); }));
+            }
+        }
         String app = labels.get(c.getPackageName());
         if (app == null) {
             app = c.getPackageName();
@@ -363,6 +394,27 @@ final class NowPlaying {
             android.util.Log.w("TvHome.NowPlaying", "player screen: " + e);
             return false;
         }
+    }
+
+    /**
+     * Back to the film: the player's screen, then its Play once it is in front. Video apps pause when Home covers
+     * them (KIK does), and the film should go on, not wait for another OK.
+     */
+    boolean openAndResume() {
+        MediaController c = current;
+        boolean opened = openPlayer();
+        if (c != null) {
+            Runnable play = () -> {
+                if (state(c) != PlaybackState.STATE_PAUSED) return;
+                try {
+                    c.getTransportControls().play();
+                } catch (RuntimeException ignored) {   // the player quit meanwhile
+                }
+            };
+            main.postDelayed(play, 1200);
+            main.postDelayed(play, 3000);   // a slow app is still resuming its screen the first time
+        }
+        return opened;
     }
 
     /** Stops the player and hides the card until something plays again. */
