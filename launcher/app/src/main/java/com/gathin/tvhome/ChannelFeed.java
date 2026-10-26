@@ -28,6 +28,8 @@ final class ChannelFeed {
     /** Its history channel has no "history" in its id: it is the one made last (see read). */
     private static final String SMARTTUBE = "org.smarttube.stable";
     private static final String KIK = "kik.app";
+    /** Programs' lengths by app and title, from every channel read (length()). */
+    private static final java.util.Map<String, Long> LENGTHS = new java.util.concurrent.ConcurrentHashMap<>();
     /** internal_provider_id prefix of a channel made for this shelf (see read). */
     private static final String MARK = "tvhome:";
 
@@ -142,6 +144,8 @@ final class ChannelFeed {
                             TvContract.PreviewPrograms.COLUMN_DURATION_MILLIS},
                     null, null, null)) {
                 while (c != null && c.moveToNext()) {
+                    // Every video's length, its History too: SmartTube's session gives none for what it recorded.
+                    if (!c.isNull(7) && c.getString(1) != null) LENGTHS.put(pkg + "|" + c.getString(1), c.getLong(7));
                     if (!channels.contains(c.getLong(0))) continue;
                     String title = c.getString(1);
                     String poster = c.getString(2);
@@ -186,6 +190,29 @@ final class ChannelFeed {
             }
         }
         if (out.size() > 30) out = new ArrayList<>(out.subList(0, 30));
+        // SmartTube publishes no places: those the launcher recorded while it played (NowPlayingListener).
+        if (SMARTTUBE.equals(pkg)) {
+            for (ShelfFeed.Item i : out) {
+                long[] at = PlayerReport.place(ctx, pkg, i.title);
+                if (at != null) {
+                    i.position = at[0];
+                    if (at[1] > 0) i.duration = at[1];
+                }
+            }
+        }
         return out;
+    }
+
+    /** A program's length in ms as its app published it (any channel, read before), or 0. */
+    static long length(String pkg, String title) {
+        Long ms = LENGTHS.get(pkg + "|" + title);
+        return ms == null ? 0 : ms;
+    }
+
+    /** The YouTube video id in an intent or watch URL, or null. */
+    static String videoId(String uri) {
+        if (uri == null) return null;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("[?&]v=([A-Za-z0-9_-]{11})").matcher(uri);
+        return m.find() ? m.group(1) : null;
     }
 }

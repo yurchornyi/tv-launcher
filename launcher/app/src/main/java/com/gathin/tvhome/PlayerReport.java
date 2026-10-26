@@ -11,6 +11,8 @@ import android.util.Log;
  * episode, poster and 16:9 backdrop URLs, where it stopped and how long it is. A low-RAM TV (TCL) hides media sessions
  * from the launcher, so there this is the card's only source; elsewhere it adds the picture and length KIK's session
  * lacks. Kept in preferences, so a launcher restarted by the TV's memory cleaner still has it, for six hours.
+ * The launcher records the same for a video app that reports nothing and ends its session on Home (SmartTube,
+ * NowPlayingListener), and keeps that app's recent videos' places for the shelf (place).
  */
 public final class PlayerReport extends BroadcastReceiver {
 
@@ -62,7 +64,8 @@ public final class PlayerReport extends BroadcastReceiver {
         if (!ACTION.equals(i.getAction()) || pkg == null || !PLAYERS.contains(pkg)) return;
         SharedPreferences.Editor e = prefs(ctx).edit();
         if ("stopped".equals(i.getStringExtra("state"))) {
-            e.clear();
+            for (String k : new String[]{"pkg", "title", "original", "subtitle", "poster", "backdrop", "open",
+                    "position", "duration", "at"}) e.remove(k);   // the recorded places stay
             Log.i("TvHome.Report", pkg + ": stopped");
         } else {
             String title = i.getStringExtra("title");
@@ -78,6 +81,46 @@ public final class PlayerReport extends BroadcastReceiver {
         }
         e.apply();
         if (listener != null) listener.onReport();
+    }
+
+    /** What the launcher saw a recorded app play (NowPlayingListener): the latest report, and the video's place. */
+    static void record(Context ctx, String pkg, String title, String subtitle, String picture, String open,
+                       long position, long duration) {
+        SharedPreferences p = prefs(ctx);
+        SharedPreferences.Editor e = p.edit().putString("pkg", pkg).putString("title", title).putString("subtitle", subtitle)
+                .putString("original", "").putString("poster", picture).putString("backdrop", "").putString("open", open)
+                .putLong("position", position).putLong("duration", duration).putLong("at", System.currentTimeMillis());
+        if (position > 0) {   // its length may be unknown here (SmartTube): the shelf has it from the channel
+            try {
+                org.json.JSONObject places = new org.json.JSONObject(p.getString("places", "{}"));
+                places.put(pkg + "|" + title, new org.json.JSONArray().put(position).put(duration).put(System.currentTimeMillis()));
+                // The newest forty: a place older than that is no longer on any shelf.
+                while (places.length() > 40) {
+                    String oldest = null;
+                    long at = Long.MAX_VALUE;
+                    for (java.util.Iterator<String> k = places.keys(); k.hasNext(); ) {
+                        String key = k.next();
+                        long t = places.getJSONArray(key).optLong(2);
+                        if (t < at) { at = t; oldest = key; }
+                    }
+                    places.remove(oldest);
+                }
+                e.putString("places", places.toString());
+            } catch (org.json.JSONException ignored) {
+            }
+        }
+        e.apply();
+        if (listener != null) listener.onReport();
+    }
+
+    /** Where the launcher saw this app's video left, as {position, duration}, or null. */
+    static long[] place(Context ctx, String pkg, String title) {
+        try {
+            org.json.JSONArray a = new org.json.JSONObject(prefs(ctx).getString("places", "{}")).optJSONArray(pkg + "|" + title);
+            return a == null ? null : new long[]{a.getLong(0), a.getLong(1)};
+        } catch (org.json.JSONException e) {
+            return null;
+        }
     }
 
     /** The latest report, or null when none, the player closed, or it is older than six hours. */
@@ -96,11 +139,12 @@ public final class PlayerReport extends BroadcastReceiver {
      * where it was left when Android closed the player). False without one; the intent may only open that player.
      */
     static boolean open(Context ctx, Report r) {
-        if (r == null || r.open.isEmpty() || !PLAYERS.contains(r.pkg)) return false;
+        if (r == null || r.open.isEmpty()) return false;
         try {
             Intent i = Intent.parseUri(r.open, Intent.URI_INTENT_SCHEME);
             i.setSelector(null);
-            if (i.getComponent() == null || !r.pkg.equals(i.getComponent().getPackageName())) return false;
+            String target = i.getComponent() != null ? i.getComponent().getPackageName() : i.getPackage();
+            if (!r.pkg.equals(target)) return false;
             ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             return true;
         } catch (Exception e) {   // a malformed URI, or the player is gone
@@ -128,7 +172,7 @@ public final class PlayerReport extends BroadcastReceiver {
         return s == null ? "" : s.length() > 200 ? s.substring(0, 200) : s;
     }
 
-    /** Only a web address: the card downloads it. */
+    /** Only a web address (the card downloads it); the launcher's own saved pictures are file URLs. */
     private static String url(Intent i, String key) {
         String s = text(i, key);
         return s.startsWith("https://") ? s : "";

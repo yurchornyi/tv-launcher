@@ -2351,6 +2351,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
      */
     private List<ShelfFeed.Item> withContinue(String pkg, List<ShelfFeed.Item> items) {
         continueItem = null;
+        long openedAt = 0;
         for (Recents.Entry e : recents.all()) {
             if (!e.pkg.equals(pkg) || !Recents.Entry.ITEM.equals(e.kind)) continue;
             String type = "";
@@ -2363,7 +2364,17 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 }
             }
             continueItem = new ShelfFeed.Item(e.title, e.image, e.open, type, id);
+            openedAt = e.time;
             break;
+        }
+        // Recorded while it played (SmartTube, NowPlayingListener), after anything opened from Home: that video first.
+        PlayerReport.Report r = PlayerReport.latest(this);
+        if (r != null && r.pkg.equals(pkg) && NowPlayingListener.RECORDED.contains(pkg) && r.poster.startsWith("https://")
+                && !r.open.isEmpty() && (continueItem == null || continueItem.backdrop == null || r.at > openedAt)) {
+            android.util.Log.i("TvHome", pkg + ": continue " + r.title + " at " + r.position / 1000 + " s");
+            continueItem = new ShelfFeed.Item(r.title, r.poster, r.open, "", 0);
+            continueItem.position = r.position;
+            continueItem.duration = r.duration > 0 ? r.duration : ChannelFeed.length(pkg, r.title);
         }
         if (continueItem == null || continueItem.backdrop == null) return items;
         List<ShelfFeed.Item> out = new ArrayList<>();
@@ -2372,8 +2383,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             boolean same = (continueItem.open != null ? continueItem.open.equals(i.open) : continueItem.title.equals(i.title))
                     || samePicture(continueItem.backdrop, i.backdrop);   // "Один вдома" here, "Один удома" in KIK
             if (!same) out.add(i);
-            else if (i.duration > 0) {   // the app's copy knows where it was left
-                continueItem.position = i.position;
+            else if (i.duration > 0) {   // the app's copy knows where it was left, or at least how long it is
+                if (i.position > 0) continueItem.position = i.position;
                 continueItem.duration = i.duration;
             }
         }

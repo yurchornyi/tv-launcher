@@ -233,6 +233,13 @@ final class NowPlaying {
         // adds to that player's session (KIK's sends the title only).
         PlayerReport.Report r = reports ? PlayerReport.latest(ctx) : null;
         reported = null;
+        // A session paused before the report came (KIK left paused, then something else watched) is older news.
+        if (r != null && next != null && !next.playing && !next.pkg.equals(r.pkg) && r.at > pausedAt(found)) {
+            next = null;
+            found = null;
+        }
+        // A recorded app (SmartTube) gets no card after Home: its Continue is on its shelf (MainActivity.withContinue).
+        if (r != null && NowPlayingListener.RECORDED.contains(r.pkg)) r = null;
         if (r != null && next == null && (!closed || r.at > closedWall)) {
             closed = false;
             reported = r;
@@ -353,6 +360,17 @@ final class NowPlaying {
             labels.put(pkg, app);
         }
         return app;
+    }
+
+    /** When this session last changed, by the wall clock the reports carry. */
+    private static long pausedAt(MediaController c) {
+        try {
+            PlaybackState s = c.getPlaybackState();
+            if (s == null || s.getLastPositionUpdateTime() <= 0) return 0;
+            return System.currentTimeMillis() - (SystemClock.elapsedRealtime() - s.getLastPositionUpdateTime());
+        } catch (RuntimeException e) {
+            return 0;
+        }
     }
 
     /** The report's picture once downloaded (null until then; the card updates when it arrives). */

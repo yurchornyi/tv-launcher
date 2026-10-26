@@ -6,7 +6,6 @@ import android.util.Log;
 import android.util.LruCache;
 
 import java.io.InputStream;
-import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.HashSet;
 import java.util.Set;
@@ -34,7 +33,7 @@ final class CoverArt {
         new Thread(() -> {
             Bitmap bmp = null;
             try {
-                HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+                java.net.URLConnection c = new URL(url).openConnection();   // https, or a picture saved here (file:)
                 c.setConnectTimeout(8000);
                 c.setReadTimeout(8000);
                 byte[] data;
