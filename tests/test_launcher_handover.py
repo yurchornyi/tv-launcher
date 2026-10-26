@@ -173,7 +173,7 @@ class HandoverTest(unittest.TestCase):
     def test_success_hands_home_over(self):
         result, state = self.handover()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Installed.", result.stdout)
+        self.assertIn("Installed: Home is on the screen.", result.stdout)
         commands = state["commands"]
         start = next(i for i, c in enumerate(commands) if "am start" in c)
         disable = next(i for i, c in enumerate(commands) if "pm disable-user" in c)
@@ -187,7 +187,7 @@ class HandoverTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("did not start", result.stderr)
         self.assertIn("was left enabled", result.stderr)
-        self.assertNotIn("Installed.", result.stdout)
+        self.assertNotIn("Installed: Home is on the screen.", result.stdout)
         self.assertFalse(any("pm disable-user" in c for c in state["commands"]))
         self.assertFalse(state["stock_disabled"])
 
