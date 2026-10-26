@@ -202,7 +202,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private NowPlaying nowPlaying;
     private View npCard;
     private ImageView npCover;
-    /** The card's picture is a film's wide frame filling the screen behind it, not shown in the card itself. */
+    /** The card's picture is behind it (a film's wide frame, or its poster on the right), not in the card itself. */
     private boolean npWide;
     private TextView npTitle, npArtist;
     private android.widget.ProgressBar npProgress;
@@ -4058,6 +4058,22 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
      * The Now Playing card while a track plays: its cover sharp on the left and blurred across the shelf, title,
      * artist with the app, a progress bar ticking each second. False when nothing plays.
      */
+    /**
+     * Where a film's poster stands on the right (PosterBackdrop), in the hero's coordinates: below the top bar, its
+     * bottom level with the card's, its right edge with the Settings button's.
+     */
+    private android.graphics.RectF posterPlace() {
+        View settings = findViewById(R.id.btnSettings);
+        int[] at = new int[2], hero = new int[2];
+        settings.getLocationInWindow(at);
+        heroArt.getLocationInWindow(hero);
+        float right = at[0] - hero[0] + settings.getWidth();
+        float top = at[1] - hero[1] + settings.getHeight() + 24 * density;
+        float bottom = lastDockTop - 34 * density;
+        if (bottom - top < 120 * density) top = bottom - 120 * density;
+        return new android.graphics.RectF(right - (bottom - top), top, right, bottom);
+    }
+
     /** The card's first (left) or last visible button: the row's ends, where Left or Right stays put. */
     private View npEdge(boolean first) {
         View edge = null;
@@ -4092,8 +4108,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         findViewById(R.id.npNext).setVisibility(music);
         findViewById(R.id.npOpen).setVisibility(music);
         findViewById(R.id.npExpand).setVisibility(!video && t.cover != null ? View.VISIBLE : View.GONE);
-        // Beside Continue watching, close is a matching dark glass circle; with the music buttons, one of them.
-        findViewById(R.id.npClose).setBackgroundResource(video ? R.drawable.np_round_bg : R.drawable.icon_button_bg);
         if (wasOnCard && !npCard.hasFocus()) npEdge(true).requestFocus();   // its button went with the switch
         npTitle.setText(t.title);
         fitTitle(npTitle, 32f, 24f);
@@ -4113,8 +4127,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             // card shows it). A film's wide frame (Poster) fills the top of the screen sharp, as the shelf's
             // posters do, and is not repeated in the card; any other video frame is softened.
             boolean square = t.cover != null && Math.abs(t.cover.getWidth() - t.cover.getHeight()) * 10 < t.cover.getWidth();
-            npWide = video && t.cover != null && t.cover.getWidth() > t.cover.getHeight() * 1.3f;
-            npBackdrop = t.cover == null ? null : npWide ? new CropDrawable(new BitmapDrawable(getResources(), t.cover))
+            boolean wide = video && t.cover != null && t.cover.getWidth() > t.cover.getHeight() * 1.3f;
+            // A film with only a poster (TMDB has no frame for it): the poster whole on the right, the words left.
+            boolean aside = video && t.cover != null && t.cover.getHeight() > t.cover.getWidth() * 1.2f
+                    && heroArt.getWidth() > 0 && lastDockTop > 0;
+            npWide = wide || aside;
+            npBackdrop = t.cover == null ? null : wide ? new CropDrawable(new BitmapDrawable(getResources(), t.cover))
+                    : aside ? new PosterBackdrop(NowPlaying.soft(this, t.cover), t.cover, posterPlace(), 16 * density)
                     : square ? new BitmapDrawable(getResources(), ShelfFeed.glow(t.cover)) : NowPlaying.soft(this, t.cover);
         }
         npCover.setVisibility(t.cover != null && !npWide ? View.VISIBLE : View.GONE);
@@ -4131,7 +4150,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             heroArt.setScaleType(ImageView.ScaleType.FIT_XY);
             heroArt.setImageDrawable(npBackdrop);
             heroArtShown = npBackdrop;
-            heroFade.setAlpha(1f);
+            // A poster on the right would sink into the fade's dark lower half; its own darkened colours behind
+            // keep the words readable with half the fade.
+            heroFade.setAlpha(npBackdrop instanceof PosterBackdrop ? 0.5f : 1f);
             if (animations && !reducedMotion) heroArt.animate().alpha(1f).setDuration(400).start();
             else heroArt.setAlpha(1f);
         }

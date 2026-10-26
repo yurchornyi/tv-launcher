@@ -187,7 +187,9 @@
                 android:ellipsize="end"
                 android:textColor="#FFFFFFFF"
                 android:textSize="32sp"
-                android:fontFamily="sans-serif"
+                android:fontFamily="sans-serif-medium"
+                android:shadowColor="#99000000"
+                android:shadowRadius="12"
                 android:includeFontPadding="false" />
 
             <TextView
@@ -229,7 +231,7 @@
                     android:visibility="gone"
                     android:focusable="true"
                     android:gravity="center"
-                    android:paddingStart="18dp"
+                    android:paddingStart="20dp"
                     android:paddingEnd="22dp"
                     android:background="@drawable/np_resume_bg"
                     android:text="@string/continue_watching"
@@ -239,7 +241,7 @@
                     android:letterSpacing="0.01"
                     android:drawableStart="@drawable/ic_np_play"
                     android:drawableTint="@drawable/pill_text"
-                    android:drawablePadding="8dp" />
+                    android:drawablePadding="10dp" />
 
                 <TextView
                     android:id="@+id/npPrev"
