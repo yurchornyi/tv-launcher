@@ -2926,6 +2926,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         return true;
     }
 
+    /** Opens the one app or channel whose name is exactly what was heard; false when there is none. */
+    private boolean openNamed(String words) {
+        SearchIndex.Result r = searchAll == null ? null : SearchIndex.exact(searchAll, words);
+        if (r == null) return false;
+        android.util.Log.i("TvHome", "named: " + r.title);
+        closeSearch(false);
+        r.open.run();
+        return true;
+    }
+
     /** What was heard: the app, channel or shelf title it names, else straight to KIK when nothing here matches. */
     private boolean openHeard(String words) {
         boolean known = searchAll != null && !SearchIndex.filter(searchAll, words).isEmpty();
@@ -3587,7 +3597,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 if (done) {
                     stopListening(false);
                     android.util.Log.i("TvHome", "heard: " + words);
-                    if (ai.enabled()) {
+                    if (openNamed(words)) {
+                        // An app or channel said by its name: no AI needed for that.
+                    } else if (ai.enabled()) {
                         runAiCommand(words);   // what was meant, not only the names that match
                     } else if (!openHeard(words)) {
                         // Nothing matched what was heard: the keyboard, to put it right.

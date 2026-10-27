@@ -1,9 +1,9 @@
 package com.gathin.tvhome;
 
 import android.content.Context;
-import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 
 import org.json.JSONObject;
@@ -19,10 +19,9 @@ import java.util.concurrent.Executors;
 
 /**
  * The AI features through the launcher's Worker (config.xml tmdb_proxy, tools/tmdb-proxy/ai.js), which holds
- * SENTRA_TOKEN and asks Claude through Sentra: a spoken command as one action, picks for a mood, two lines on a film.
+ * SENTRA_TOKEN and asks Sentra, the owner's AI centre: a spoken command as one action, and picks for a mood.
  * Answers come back on the main thread; null means "not now" (no network, no Sentra token on the Worker, too many
- * requests) and the caller falls back to what works without AI. Descriptions are kept per film on this TV, so each
- * is asked once.
+ * requests) and the caller falls back to what works without AI.
  */
 final class AiClient {
 
@@ -30,21 +29,24 @@ final class AiClient {
 
     private static final String TAG = "TvHome.Ai";
 
+    /** How long to go without AI after the Worker said it has no Sentra token, before asking again. */
+    private static final long OFF_MS = 10 * 60 * 1000;
+
     private final String base;
-    private final SharedPreferences cache;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor();
-    /** Set when the Worker said it has no Sentra token: no more asking until the launcher restarts. */
-    private volatile boolean off;
+    /** Until when (uptime) not to ask: the Worker answered 503, it has no Sentra token right now. */
+    private volatile long offUntil;
 
     AiClient(Context ctx, String proxy) {
         String p = proxy == null ? "" : proxy.trim();
         base = p.isEmpty() ? "" : (p.endsWith("/") ? p.substring(0, p.length() - 1) : p);
-        cache = ctx.getApplicationContext().getSharedPreferences("ai_about", Context.MODE_PRIVATE);
+        // The film lines (/ai/about) are retired; their old cache on the TV goes with them.
+        ctx.getApplicationContext().deleteSharedPreferences("ai_about");
     }
 
     boolean enabled() {
-        return !base.isEmpty() && !off;
+        return !base.isEmpty() && SystemClock.uptimeMillis() >= offUntil;
     }
 
     void command(JSONObject body, Answer answer) {
@@ -54,30 +56,6 @@ final class AiClient {
     void picks(String request, Answer answer) {
         try {
             post("/ai/picks", new JSONObject().put("request", request).put("lang", language()), answer);
-        } catch (Exception e) {
-            answer.onAnswer(null);
-        }
-    }
-
-    /** Two lines on a TMDB film or series ("about", "verdict"); from this TV's cache when asked before. */
-    void about(String type, long id, Answer answer) {
-        String key = type + ":" + id + ":" + language();
-        String known = cache.getString(key, null);
-        if (known != null) {
-            try {
-                answer.onAnswer(new JSONObject(known));
-                return;
-            } catch (Exception ignored) {
-            }
-        }
-        try {
-            post("/ai/about", new JSONObject().put("type", type).put("id", id).put("lang", language()), a -> {
-                if (a != null && a.optString("about").length() > 0) {
-                    if (cache.getAll().size() > 400) cache.edit().clear().apply();
-                    cache.edit().putString(key, a.toString()).apply();
-                }
-                answer.onAnswer(a);
-            });
         } catch (Exception e) {
             answer.onAnswer(null);
         }
@@ -106,7 +84,7 @@ final class AiClient {
                     os.write(body.toString().getBytes(StandardCharsets.UTF_8));
                 }
                 int code = c.getResponseCode();
-                if (code == 503) off = true;   // the Worker has no Sentra token yet
+                if (code == 503) offUntil = SystemClock.uptimeMillis() + OFF_MS;   // no Sentra token on the Worker yet
                 if (code == 200) {
                     try (InputStream in = c.getInputStream()) {
                         out = new JSONObject(read(in));

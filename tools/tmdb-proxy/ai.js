@@ -1,6 +1,6 @@
 // The launcher's AI features, answered through Sentra, the owner's AI centre (SENTRA_URL in vars, SENTRA_TOKEN secret,
-// which Sentra writes itself): a spoken command turned into one action on the TV (/ai/command), a few films for a mood
-// or company with a line on why (/ai/picks), and two sentences on a film from the shelf (/ai/about). Each goes to
+// which Sentra writes itself): a spoken command turned into one action on the TV (/ai/command) and a few films for a
+// mood or company with a line on why (/ai/picks). Each goes to
 // Sentra's chat route with a role, not a model: Sentra picks the model, keeps limits and spend, caches, and learns
 // each feature apart (x-sentra-skill). Each answer is a JSON object checked against a fixed shape, so the TV never
 // parses prose.
@@ -30,9 +30,11 @@ async function ask(env, { skill, role, system, user, schema, maxTokens, cache = 
     'x-sentra-deadline-ms': String(deadlineMs),
   };
   if (cache > 0) headers['x-sentra-cache'] = String(cache);
+  // Sentra keeps to the deadline itself; this only stops a hung connection from holding the TV past it.
   const response = await fetch(env.SENTRA_URL.replace(/\/+$/, '') + '/v1/chat/completions', {
     method: 'POST',
     headers,
+    signal: AbortSignal.timeout(deadlineMs + 2000),
     body: JSON.stringify({
       model: 'role:' + role,
       max_tokens: maxTokens,
@@ -42,6 +44,9 @@ async function ask(env, { skill, role, system, user, schema, maxTokens, cache = 
         { role: 'user', content: user },
       ],
     }),
+  }).catch((e) => {
+    if (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) throw new HttpError(504, 'ai timeout');
+    throw e;
   });
   if (response.status === 429) throw new HttpError(429, 'busy');
   if (!response.ok) throw new HttpError(502, 'ai error ' + response.status);
@@ -89,7 +94,7 @@ const COMMAND_SCHEMA = {
 
 const COMMAND_SYSTEM = `You turn one spoken request on a living-room TV (Android TV, Ukrainian household) into exactly one action.
 The request may be in Ukrainian, Russian or English. The user message lists what is on this TV: apps (package and name),
-live TV channels (id, name, app), and titles shown on the home screen right now (title, app, live flag).
+live TV channels (id and name, under their app), and titles shown on the home screen right now (title, app, live flag).
 Choose the action that best does what was asked:
 - open_channel: a TV channel by name or by topic ("новини" -> a news channel, "футбол" -> a sports channel); channel_id and app from the list.
 - open_title: one of the listed home-screen titles is clearly what was asked (for example a live match that is on now); title exactly as listed, its app.
@@ -104,11 +109,19 @@ Prefer what is live right now for "наживо"/"live". Use only packages and i
 export async function command(env, body) {
   const text = str(body.text, 300).trim();
   if (!text) throw new HttpError(400, 'no text');
-  const apps = list(body.apps, 80).map((a) => `${str(a.pkg, 80)} | ${str(a.label, 60)}`).join('\n');
-  const channels = list(body.channels, 400).map((c) => `${str(c.id, 40)} | ${str(c.name, 60)} | ${str(c.app, 80)}`).join('\n');
-  const titles = list(body.titles, 80)
-    .map((t) => `${str(t.title, 120)} | ${str(t.app, 80)}${t.live ? ' | LIVE' : ''}`).join('\n');
-  const user = `Request: ${text}\n\nApps:\n${apps}\n\nChannels:\n${channels}\n\nHome-screen titles:\n${titles}`;
+  // Kept short: every line is tokens on each spoken request. Channels are grouped under their app, so a package is
+  // written once, not on every channel; the TV already leaves out the channels set to never show.
+  const apps = list(body.apps, 60).map((a) => `${str(a.pkg, 80)} | ${str(a.label, 40)}`).join('\n');
+  const byApp = new Map();
+  for (const c of list(body.channels, 150)) {
+    const app = str(c.app, 80);
+    if (!byApp.has(app)) byApp.set(app, []);
+    byApp.get(app).push(`${str(c.id, 40)} | ${str(c.name, 40)}`);
+  }
+  const channels = [...byApp].map(([app, lines]) => `[${app}]\n${lines.join('\n')}`).join('\n');
+  const titles = list(body.titles, 40)
+    .map((t) => `${str(t.title, 80)} | ${str(t.app, 80)}${t.live ? ' | LIVE' : ''}`).join('\n');
+  const user = `Request: ${text}\n\nApps:\n${apps}\n\nChannels (id | name, under [app]):\n${channels}\n\nHome-screen titles:\n${titles}`;
   const out = await ask(env, { skill: 'tv-command', role: 'fast', system: COMMAND_SYSTEM, user, schema: COMMAND_SCHEMA, maxTokens: 400, deadlineMs: 8000 });
   return out || { action: 'search', app: '', channel_id: '', title: '', query: text, say: '' };
 }
@@ -143,10 +156,11 @@ Use the original title and release year so they can be found on TMDB. Each "why"
 at most twelve words, about this pick and this request.`;
 
 export async function picks(env, body) {
-  const request = str(body.request, 300).trim();
+  // One spelling per request, so "Щось смішне " and "щось смішне" are one entry in Sentra's cache.
+  const request = str(body.request, 300).toLowerCase().replace(/\s+/g, ' ').trim();
   if (!request) throw new HttpError(400, 'no request');
   const lang = str(body.lang, 10) || 'uk-UA';
-  const out = await ask(env, { skill: 'tv-picks', role: 'quality', system: PICKS_SYSTEM, user: `Request: ${request}`, schema: PICKS_SCHEMA, maxTokens: 1200, cache: 3600 });
+  const out = await ask(env, { skill: 'tv-picks', role: 'quality', system: PICKS_SYSTEM, user: `Request: ${request}`, schema: PICKS_SCHEMA, maxTokens: 1200, cache: 3 * 24 * 3600 });
   const found = [];
   for (const p of list(out && out.picks, 8)) {
     const hit = await tmdbFind(env, str(p.title, 120), p.year, p.kind === 'tv' ? 'tv' : 'movie', lang);
@@ -184,45 +198,6 @@ function tmdbUrl(env, u) {
 function tmdbHeaders(env) {
   const key = env.TMDB_KEY.trim();
   return key.length > 40 ? { Authorization: 'Bearer ' + key, Accept: 'application/json' } : { Accept: 'application/json' };
-}
-
-// ---- /ai/about --------------------------------------------------------------------------------------------------
-
-const ABOUT_SCHEMA = {
-  type: 'object',
-  properties: {
-    about: { type: 'string', description: 'what it is about, one Ukrainian sentence, at most 18 words, no spoilers' },
-    verdict: { type: 'string', description: 'whether it is worth watching and for whom, one Ukrainian sentence, at most 14 words' },
-  },
-  required: ['about', 'verdict'],
-  additionalProperties: false,
-};
-
-const ABOUT_SYSTEM = `You write two short lines in Ukrainian for a film or series shown on a TV home screen: what it is
-about (no spoilers) and whether it is worth watching and for whom. Base them on the TMDB facts given; be honest when
-the rating is mediocre. Plain sentences, no quotes, no emoji.`;
-
-export async function about(env, body) {
-  const kind = body.type === 'tv' ? 'tv' : 'movie';
-  const id = Number.parseInt(body.id, 10);
-  if (!Number.isInteger(id) || id <= 0) throw new HttpError(400, 'no id');
-  const lang = str(body.lang, 10) || 'uk-UA';
-  const u = new URL(`https://api.themoviedb.org/3/${kind}/${id}`);
-  u.searchParams.set('language', lang);
-  const r = await fetch(tmdbUrl(env, u), { headers: tmdbHeaders(env), cache: 'no-store' });
-  if (!r.ok) throw new HttpError(404, 'unknown title');
-  const d = await r.json();
-  const facts = [
-    `Title: ${d.title || d.name}`,
-    `Original: ${d.original_title || d.original_name}`,
-    `Year: ${(d.release_date || d.first_air_date || '').slice(0, 4)}`,
-    `Genres: ${(d.genres || []).map((g) => g.name).join(', ')}`,
-    `TMDB rating: ${d.vote_average} from ${d.vote_count} votes`,
-    `Overview: ${(d.overview || '').slice(0, 900)}`,
-  ].join('\n');
-  const out = await ask(env, { skill: 'tv-about', role: 'quality', system: ABOUT_SYSTEM, user: facts, schema: ABOUT_SCHEMA, maxTokens: 400, cache: 7 * 24 * 3600 });
-  if (!out) return { about: str(d.overview, 200), verdict: '' };
-  return { about: str(out.about, 220), verdict: str(out.verdict, 160) };
 }
 
 export { HttpError };
