@@ -22,11 +22,14 @@ new key.
 ## AI (ai.js)
 
 `POST /ai/command` turns a spoken request into one action on the TV, `POST /ai/picks` suggests films for a mood
-(found on TMDB for their backdrops), `POST /ai/about` writes two lines on a film. They go to Sentra, the owner's AI
-centre, on its chat route with a role (`role:fast` for a command, a remote waits; `role:quality` for picks and the
-two lines), and each names its feature in `x-sentra-skill` (`tv-command`, `tv-picks`, `tv-about`): Sentra picks the
-model, keeps the limits and the spend, learns each feature apart and answers repeats from its cache (an hour for
-picks, a week for a film's lines). `SENTRA_URL` is in `wrangler.toml`; the `SENTRA_TOKEN` secret Sentra writes into
+(found on TMDB for their backdrops). They go to Sentra, the owner's AI centre, on its chat route with a role
+(`role:fast` for a command, a remote waits; `role:quality` for picks), and each names its feature in
+`x-sentra-skill` (`tv-command`, `tv-picks`): Sentra picks the model, keeps the limits and the spend, learns each
+feature apart and answers repeats from its cache (three days for picks, asked in lower case so one phrase is one
+entry). A command's prompt stays short: at most 60 apps, 150 channels grouped under their app and 40 shelf titles.
+A Sentra that does not answer within its deadline plus two seconds ends in 504. (`/ai/about`, two lines on a film,
+was retired on 27.10.2026: nothing on the TV asked for it.) `SENTRA_URL` is in `wrangler.toml`; the `SENTRA_TOKEN`
+secret Sentra writes into
 this Worker when the project is connected. Each address gets 12 AI requests a minute (the `AI_LIMIT` rate limit),
 and all TVs together 60 (`AI_GLOBAL`), since the URL is public. `GET /` is a few lines on what this Worker is: the
 address Sentra watches.

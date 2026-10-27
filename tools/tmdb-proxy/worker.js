@@ -1,4 +1,4 @@
-import { command, picks, about, HttpError } from './ai.js';
+import { command, picks, HttpError } from './ai.js';
 import { featured as kickFeatured, play as kickPlay } from './kick.js';
 import { popular as kyivstarPopular, channel as kyivstarChannel } from './kyivstar.js';
 import { account, isAccountRoute } from './account.js';
@@ -40,11 +40,11 @@ function tmdbEmpty(path, why) {
 
 const ABOUT_PAGE = `TV-Launcher: the backend of an Android TV home screen for a Ukrainian household.
 - TMDB posters for the top shelf (/3/...), Kyivstar TV, Kick and Spotify shelves.
-- AI through Sentra: a spoken command turned into one TV action, film picks for a mood, two lines on a film.
+- AI through Sentra: a spoken command turned into one TV action, film picks for a mood.
 - Accounts that carry one TV's Home to the others.
 `;
 
-const AI_ROUTES = { '/ai/command': command, '/ai/picks': picks, '/ai/about': about };
+const AI_ROUTES = { '/ai/command': command, '/ai/picks': picks };
 
 /** POST /ai/*: JSON in, JSON out; each TV (by address) gets a few a minute, so a stranger cannot run up the bill. */
 async function ai(request, env, path) {

@@ -51,8 +51,8 @@ class SentraRules(unittest.TestCase):
         self.assertEqual(re.findall(r"fetch\(env\.(\w+)", ai), ["SENTRA_URL"])
         self.assertIn("model: 'role:' + role", ai)
         self.assertEqual(set(re.findall(r"skill: '[\w-]+', role: '(\w+)'", ai)), {"fast", "quality"})
-        self.assertEqual(set(re.findall(r"skill: '([\w-]+)'", ai)), {"tv-command", "tv-picks", "tv-about"})
-        # Sentra caches picks and about: the Worker keeps no AI cache of its own.
+        self.assertEqual(set(re.findall(r"skill: '([\w-]+)'", ai)), {"tv-command", "tv-picks"})
+        # Sentra caches picks: the Worker keeps no AI cache of its own.
         self.assertNotIn("caches.", ai)
 
     def test_apk_carries_no_tmdb_key(self):

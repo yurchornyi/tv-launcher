@@ -60,6 +60,27 @@ final class SearchIndex {
         return out;
     }
 
+    /**
+     * The one app or channel named exactly by what was said ("YouTube", "1+1 Україна"), so the launcher opens it
+     * without asking the AI; null when nothing is named so, or more than one thing is.
+     */
+    static Result exact(List<Result> all, String raw) {
+        String q = bare(raw);
+        if (q.isEmpty()) return null;
+        Result found = null;
+        for (Result r : all) {
+            if (r.rank > 1 || !bare(r.title).equals(q)) continue;
+            if (found != null) return null;
+            found = r;
+        }
+        return found;
+    }
+
+    /** Folded, without the full stop or comma a recogniser may put at either end. */
+    private static String bare(String s) {
+        return fold(s).replaceAll("^[\\p{Punct}\\s]+|[\\p{Punct}\\s]+$", "");
+    }
+
     /** Lower case, no apostrophes or extra spaces: "Кінопоказ" and "кінопоказ" are the same word. */
     static String fold(String s) {
         if (s == null) return "";
