@@ -48,6 +48,20 @@ test('picks are asked in one spelling and cached for days', async () => {
   assert.ok(Number(seen[0].headers['x-sentra-cache']) >= 86400);
 });
 
+test('a command keeps its action when the model leaves out the empty fields or wraps the object in words', async () => {
+  // 28.10: a light model answered {action, query} only; the missing channel_id, title, say made the answer «unusable»
+  // and every spoken request became a plain search.
+  sentra({ action: 'picks', query: 'щось смішне на вечір' }, []);
+  const r = await post('/ai/command', { text: 'увімкни щось смішне на вечір' });
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { action: 'picks', query: 'щось смішне на вечір', app: '', channel_id: '', title: '', say: '' });
+  globalThis.fetch = async () => Response.json({ choices: [{ message: { content: 'Ось: {"action":"open_app","app":"com.netflix.ninja"} — готово' } }] });
+  assert.equal((await (await post('/ai/command', { text: 'нетфлікс' })).json()).action, 'open_app');
+  // An action outside the list is never guessed: the TV searches for the words.
+  sentra({ action: 'dance', query: 'x' }, []);
+  assert.equal((await (await post('/ai/command', { text: 'танцюй' })).json()).action, 'search');
+});
+
 test('a Sentra that never answers ends in a quick error, not a hung TV', async () => {
   // The call carries a time limit; when it runs out (here at once, as AbortSignal.timeout's timer would) the TV
   // gets 504.
