@@ -9,6 +9,7 @@
 //   b:<email>  blocked by the owner: no sign-in, no sync, until unblocked
 //   a:<email>:<package>  an app's own settings backup (SmartTube's), encrypted on the TV with a key from the PIN,
 //              so this Worker only ever holds bytes it cannot read; metadata { updated, size }
+//   h:<who asks>  the films picks showed one profile lately (ai.js), so it is not offered them again; gone in 3 days
 // Guessing a PIN (guard.js, counted exactly from anywhere): ten wrong ones lock that e-mail for 15 minutes, and each
 // address gets ten sign-in tries a minute, so a PIN cannot be guessed from one place or from many. New accounts: five
 // an hour per address. Writes: a few a minute per account (WRITE_LIMIT).
@@ -93,6 +94,19 @@ async function signedIn(request, env) {
   if (!who) throw new HttpError(401, 'signed out');
   if (await env.ACCOUNTS.get('b:' + who)) throw new HttpError(403, 'blocked');
   return { who, hash };
+}
+
+/**
+ * The account a request's sign-in token belongs to, for the AI routes (ai.js asker): a fixed name for it that is not
+ * its e-mail, the same from every TV signed in to it; '' when the token is missing, unknown or blocked.
+ */
+export async function accountKey(request, env) {
+  if (!env.ACCOUNTS || !request.headers.get('Authorization')) return '';
+  try {
+    return (await sha256('ai:' + (await signedIn(request, env)).who)).slice(0, 24);
+  } catch {
+    return '';   // signed out, or KV not answering: the AI still works, counted by TV
+  }
 }
 
 /** POST /account/signin {email, pin}: signs in, or makes the account when there is none for that e-mail yet. */

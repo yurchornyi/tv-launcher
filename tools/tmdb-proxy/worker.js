@@ -1,4 +1,4 @@
-import { command, picks, HttpError } from './ai.js';
+import { asker, command, picks, HttpError } from './ai.js';
 import { featured as kickFeatured, play as kickPlay } from './kick.js';
 import { popular as kyivstarPopular, channel as kyivstarChannel } from './kyivstar.js';
 import { account, isAccountRoute } from './account.js';
@@ -46,21 +46,16 @@ const ABOUT_PAGE = `TV-Launcher: the backend of an Android TV home screen for a 
 
 const AI_ROUTES = { '/ai/command': command, '/ai/picks': picks };
 
-/** POST /ai/*: JSON in, JSON out; each TV (by address) gets a few a minute, so a stranger cannot run up the bill. */
+/** POST /ai/*: JSON in, JSON out; each profile (or TV) gets a few a minute, so a stranger cannot run up the bill. */
 async function ai(request, env, path) {
   const json = (o, status = 200) => new Response(JSON.stringify(o), {
     status, headers: { 'Content-Type': 'application/json; charset=utf-8' },
   });
   if (!env.SENTRA_TOKEN || !env.SENTRA_URL) return json({ error: 'not configured' }, 503);
-  const who = request.headers.get('cf-connecting-ip') || 'unknown';
-  if (env.AI_LIMIT) {
-    const { success } = await env.AI_LIMIT.limit({ key: who });
+  // A ceiling per address first: who asks is the TV's own word, so made-up ids cannot get round the count below.
+  if (env.AI_ADDRESS) {
+    const { success } = await env.AI_ADDRESS.limit({ key: request.headers.get('cf-connecting-ip') || 'unknown' });
     if (!success) return json({ error: 'slow down' }, 429);
-  }
-  // And a ceiling for everyone together, so many addresses at once cannot run up the bill either.
-  if (env.AI_GLOBAL) {
-    const { success } = await env.AI_GLOBAL.limit({ key: 'all' });
-    if (!success) return json({ error: 'busy' }, 429);
   }
   let body;
   try {
@@ -68,8 +63,21 @@ async function ai(request, env, path) {
   } catch {
     return json({ error: 'bad json' }, 400);
   }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) body = {};
+  // Counted per asker (ai.js asker): the account and profile, else the TV, else the address. Two TVs with one
+  // profile share a count, two profiles count apart.
+  const asking = await asker(request, env, body);
+  if (env.AI_LIMIT) {
+    const { success } = await env.AI_LIMIT.limit({ key: asking.key });
+    if (!success) return json({ error: 'slow down' }, 429);
+  }
+  // And a ceiling for everyone together, so many addresses at once cannot run up the bill either.
+  if (env.AI_GLOBAL) {
+    const { success } = await env.AI_GLOBAL.limit({ key: 'all' });
+    if (!success) return json({ error: 'busy' }, 429);
+  }
   try {
-    return json(await AI_ROUTES[path](env, body || {}));
+    return json(await AI_ROUTES[path](env, body, asking));
   } catch (e) {
     if (e instanceof HttpError) return json({ error: e.message }, e.status);
     console.error('AI route failed', path, e instanceof Error ? `${e.name}: ${e.message}` : String(e));

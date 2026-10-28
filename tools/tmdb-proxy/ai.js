@@ -3,7 +3,9 @@
 // mood or company with a line on why (/ai/picks). Each goes to
 // Sentra's chat route with a role, not a model: Sentra picks the model, keeps limits and spend, caches, and learns
 // each feature apart (x-sentra-skill). Each answer is a JSON object checked against a fixed shape, so the TV never
-// parses prose.
+// parses prose. Each request also says who asks (asker): the TV's profile and its name go to Sentra for the owner to
+// read, the account and ids stay here, for the limit and for picks that do not repeat themselves.
+import { accountKey } from './account.js';
 
 /** The schema as a check: true when `value` has the shape (types, enums, required keys) the TV relies on. */
 function fits(schema, value) {
@@ -54,9 +56,10 @@ function objectIn(text) {
  * One request to Sentra for a JSON object in `schema`; null when the answer is unusable. `skill` names the feature
  * for Sentra's learning and stats, `role` is fast (a remote waits) or quality, `cache` is how many seconds Sentra may
  * answer the same request from its cache. `check` is the shape the whole answer must have, `schema` unless the caller
- * checks parts of it on its own.
+ * checks parts of it on its own. `who` is the asker's line for the owner: Sentra takes `sentra` out of the body
+ * before any model or its cache sees it.
  */
-async function ask(env, { skill, role, system, user, schema, check = schema, maxTokens, cache = 0, deadlineMs = 15000 }) {
+async function ask(env, { skill, role, system, user, schema, check = schema, maxTokens, cache = 0, deadlineMs = 15000, who = '' }) {
   const headers = {
     'Content-Type': 'application/json',
     Authorization: 'Bearer ' + env.SENTRA_TOKEN.trim(),
@@ -77,6 +80,7 @@ async function ask(env, { skill, role, system, user, schema, check = schema, max
         { role: 'system', content: `${system}\nAnswer with one JSON object only, matching this JSON Schema:\n${JSON.stringify(schema)}` },
         { role: 'user', content: user },
       ],
+      ...(who ? { sentra: { who } } : {}),
     }),
   }).catch((e) => {
     if (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) throw new HttpError(504, 'ai timeout');
@@ -103,6 +107,46 @@ class HttpError extends Error {
 
 const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
 const list = (v, max) => (Array.isArray(v) ? v.slice(0, max) : []);
+const obj = (v) => (typeof v === 'object' && v !== null && !Array.isArray(v) ? v : {});
+
+// ---- who asks ---------------------------------------------------------------------------------------------------
+
+const PROFILE_ID = /^[0-9A-Za-z_-]{1,32}$/;
+const DEVICE_ID = /^[0-9A-Za-z-]{8,64}$/;
+
+/** A name the owner reads in Sentra: letters, digits, spaces and a few signs, nothing else, at most `max`. */
+function name(v, max) {
+  return str(v, 200).replace(/[^\p{L}\p{M}\p{N} .,'’()+#№&_-]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, max).trim();
+}
+
+/** Nobody known (a route called without asker): nothing remembered, nothing for Sentra. */
+const NOBODY = { key: '', memory: '', who: '' };
+
+/**
+ * Who asks: the TV's `who` ({profile: {id, name}, device: {id, name}}, AiClient.Who) and its account's sign-in token
+ * (Authorization), checked against the accounts. `key` is what the AI limit counts: the account and profile, so two TVs
+ * with one profile count once and two profiles apart; else this TV (and its profile); else the address. `memory` is
+ * where picks keep what this profile was shown ('' when only the address is known: a shared address would mix
+ * people). `who` is «профіль <name> · <TV>», at most 40 characters, the only part that leaves this Worker.
+ * An id that is too long or has other characters counts as not sent; a name is cleaned and cut.
+ */
+export async function asker(request, env, body) {
+  const w = obj(obj(body).who);
+  const profile = obj(w.profile); const device = obj(w.device);
+  const profileId = typeof profile.id === 'string' && PROFILE_ID.test(profile.id) ? profile.id : '';
+  const deviceId = typeof device.id === 'string' && DEVICE_ID.test(device.id) ? device.id : '';
+  const account = await accountKey(request, env);
+  let key;
+  if (account && profileId) key = `a:${account}:p:${profileId}`;
+  else if (deviceId) key = `d:${deviceId}` + (profileId ? `:p:${profileId}` : '');
+  // «профіль » 8, the name 13, « · » 3, the TV 16: never over Sentra's 40.
+  const profileName = name(profile.name, 13); const tv = name(device.name, 16);
+  return {
+    key: key || 'ip:' + (request.headers.get('cf-connecting-ip') || 'unknown'),
+    memory: key ? 'h:' + key : '',
+    who: [profileName && 'профіль ' + profileName, tv].filter(Boolean).join(' · '),
+  };
+}
 
 // ---- /ai/command ------------------------------------------------------------------------------------------------
 
@@ -140,7 +184,7 @@ Choose the action that best does what was asked:
 - none: nothing on this TV can do it; say explains briefly.
 Prefer what is live right now for "наживо"/"live". Use only packages and ids that appear in the lists. say is at most six words.`;
 
-export async function command(env, body) {
+export async function command(env, body, asking = NOBODY) {
   const text = str(body.text, 300).trim();
   if (!text) throw new HttpError(400, 'no text');
   // Kept short: every line is tokens on each spoken request. Channels are grouped under their app, so a package is
@@ -157,7 +201,7 @@ export async function command(env, body) {
     .map((t) => `${str(t.title, 80)} | ${str(t.app, 80)}${t.live ? ' | LIVE' : ''}`).join('\n');
   const lang = str(body.lang, 10).trim();
   const user = `Request: ${text}${lang ? `\nLanguage: ${lang}` : ''}\n\nApps:\n${apps}\n\nChannels (id | name, under [app]):\n${channels}\n\nHome-screen titles:\n${titles}`;
-  const out = await ask(env, { skill: 'tv-command', role: 'fast', system: COMMAND_SYSTEM, user, schema: COMMAND_SCHEMA, maxTokens: 400, deadlineMs: 8000 });
+  const out = await ask(env, { skill: 'tv-command', role: 'fast', system: COMMAND_SYSTEM, user, schema: COMMAND_SCHEMA, maxTokens: 400, deadlineMs: 8000, who: asking.who });
   return out || { action: 'search', app: '', channel_id: '', title: '', query: text, say: '' };
 }
 
@@ -194,18 +238,53 @@ Give six well-known, well-rated picks that fit the request, mixing recent and cl
 Use the original title and release year so they can be found on TMDB. Each "why" is one short Ukrainian sentence,
 at most twelve words, about this pick and this request.`;
 
-export async function picks(env, body) {
+export async function picks(env, body, asking = NOBODY) {
   // One spelling per request, so "Щось смішне " and "щось смішне" are one entry in Sentra's cache.
   const request = str(body.request, 300).toLowerCase().replace(/\s+/g, ' ').trim();
   if (!request) throw new HttpError(400, 'no request');
   const lang = str(body.lang, 10) || 'uk-UA';
-  const out = await ask(env, { skill: 'tv-picks', role: 'quality', system: PICKS_SYSTEM, user: `Request: ${request}`, schema: PICKS_SCHEMA, check: PICKS_LIST, maxTokens: 1200, cache: 3 * 24 * 3600 });
-  const found = [];
-  for (const p of list(out && out.picks.filter((pick) => fits(PICK_SCHEMA, pick)), 8)) {
-    const hit = await tmdbFind(env, str(p.title, 120), p.year, p.kind === 'tv' ? 'tv' : 'movie', lang);
-    if (hit) found.push({ ...hit, why: str(p.why, 160) });
+  // What this profile was shown lately is asked to be left out, and dropped if the model offers it anyway. The list
+  // is the profile's own, so its prompt (Sentra's cache key) is too, once it has been shown anything.
+  const shown = await recall(env, asking.memory);
+  const seen = new Set(shown.map((s) => s.title.toLowerCase()));
+  const avoid = shown.length ? `\nAlready suggested to this viewer lately, suggest others: ${shown.map((s) => `${s.title} (${s.year})`).join('; ')}` : '';
+  const out = await ask(env, { skill: 'tv-picks', role: 'quality', system: PICKS_SYSTEM, user: `Request: ${request}${avoid}`, schema: PICKS_SCHEMA, check: PICKS_LIST, maxTokens: 1200, cache: 3 * 24 * 3600, who: asking.who });
+  const fresh = [];
+  for (const pick of out ? out.picks : []) {
+    if (!fits(PICK_SCHEMA, pick) || seen.has(pick.title.toLowerCase())) continue;
+    seen.add(pick.title.toLowerCase());
+    fresh.push(pick);
   }
+  const found = []; const kept = [];
+  for (const p of list(fresh, 8)) {
+    const hit = await tmdbFind(env, str(p.title, 120), p.year, p.kind === 'tv' ? 'tv' : 'movie', lang);
+    if (!hit) continue;
+    found.push({ ...hit, why: str(p.why, 160) });
+    kept.push({ title: str(p.title, 120), year: p.year });
+  }
+  if (kept.length) await remember(env, asking.memory, [...kept, ...shown]);
   return { picks: found };
+}
+
+// The films one profile was shown, newest first, in the ACCOUNTS namespace under h:<who asks> for three days. Not a
+// cache of answers: the TV never gets anything from it, it only tells the model what not to offer again.
+const MEMORY_DAYS = 3;
+const MEMORY_SIZE = 30;
+
+async function recall(env, key) {
+  if (!key || !env.ACCOUNTS) return [];
+  try {
+    const kept = await env.ACCOUNTS.get(key, 'json');
+    return list(kept, MEMORY_SIZE).filter((s) => s && typeof s.title === 'string' && s.title && Number.isInteger(s.year));
+  } catch {
+    return [];   // unreadable: asked as if nothing was shown
+  }
+}
+
+async function remember(env, key, shown) {
+  if (!key || !env.ACCOUNTS) return;
+  await env.ACCOUNTS.put(key, JSON.stringify(shown.slice(0, MEMORY_SIZE)), { expirationTtl: MEMORY_DAYS * 24 * 3600 })
+    .catch(() => {});   // not kept: the next picks may repeat these, nothing else breaks
 }
 
 /** The best TMDB match for a title and year: its localized title, a backdrop, kind and id; null when none. */

@@ -19,6 +19,8 @@ the Worker passes it to Sentra as lines `id | name | app`:
 ```
 
 Limits: `text` up to 300 characters, up to 80 apps, 400 channels and 80 home-screen titles.
+The TV also says who asks (`who`: its profile and the TV); the Worker keeps that to itself, so it is never part of the
+request text.
 
 ## tv-command: the answer
 
