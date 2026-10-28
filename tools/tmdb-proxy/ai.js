@@ -22,8 +22,10 @@ function fits(schema, value) {
  * channel_id, title, say when they do not apply) is the empty text it would have been. A field with a fixed set of
  * values (action) is never guessed: missing, the answer stays unusable. 28.10: «увімкни щось смішне на вечір» came
  * back from Sentra in a second and was thrown away for a missing field, so every spoken request fell back to search.
+ * A whole number written as text where the schema wants an integer (a pick's year as "2019") is that number.
  */
 function filled(schema, value) {
+  if (schema.type === 'integer' && typeof value === 'string' && /^\s*-?\d+\s*$/.test(value)) return Number(value);
   if (schema.type === 'object' && typeof value === 'object' && value !== null && !Array.isArray(value)) {
     const out = { ...value };
     for (const [key, field] of Object.entries(schema.properties || {})) {
@@ -51,9 +53,10 @@ function objectIn(text) {
 /**
  * One request to Sentra for a JSON object in `schema`; null when the answer is unusable. `skill` names the feature
  * for Sentra's learning and stats, `role` is fast (a remote waits) or quality, `cache` is how many seconds Sentra may
- * answer the same request from its cache.
+ * answer the same request from its cache. `check` is the shape the whole answer must have, `schema` unless the caller
+ * checks parts of it on its own.
  */
-async function ask(env, { skill, role, system, user, schema, maxTokens, cache = 0, deadlineMs = 15000 }) {
+async function ask(env, { skill, role, system, user, schema, check = schema, maxTokens, cache = 0, deadlineMs = 15000 }) {
   const headers = {
     'Content-Type': 'application/json',
     Authorization: 'Bearer ' + env.SENTRA_TOKEN.trim(),
@@ -85,7 +88,7 @@ async function ask(env, { skill, role, system, user, schema, maxTokens, cache = 
   const text = String(data.choices?.[0]?.message?.content ?? '').replace(/^```(?:json)?\s*|\s*```$/g, '');
   try {
     const out = filled(schema, objectIn(text));
-    return fits(schema, out) ? out : null;
+    return fits(check, out) ? out : null;
   } catch {
     return null;
   }
@@ -152,7 +155,8 @@ export async function command(env, body) {
   const channels = [...byApp].map(([app, lines]) => `[${app}]\n${lines.join('\n')}`).join('\n');
   const titles = list(body.titles, 40)
     .map((t) => `${str(t.title, 80)} | ${str(t.app, 80)}${t.live ? ' | LIVE' : ''}`).join('\n');
-  const user = `Request: ${text}\n\nApps:\n${apps}\n\nChannels (id | name, under [app]):\n${channels}\n\nHome-screen titles:\n${titles}`;
+  const lang = str(body.lang, 10).trim();
+  const user = `Request: ${text}${lang ? `\nLanguage: ${lang}` : ''}\n\nApps:\n${apps}\n\nChannels (id | name, under [app]):\n${channels}\n\nHome-screen titles:\n${titles}`;
   const out = await ask(env, { skill: 'tv-command', role: 'fast', system: COMMAND_SYSTEM, user, schema: COMMAND_SCHEMA, maxTokens: 400, deadlineMs: 8000 });
   return out || { action: 'search', app: '', channel_id: '', title: '', query: text, say: '' };
 }
@@ -180,6 +184,10 @@ const PICKS_SCHEMA = {
   required: ['picks'],
   additionalProperties: false,
 };
+const PICK_SCHEMA = PICKS_SCHEMA.properties.picks.items;
+// The whole answer only has to hold a list; each pick is checked on its own, so one bad pick (a year as "2019–2021")
+// costs that pick alone, where it used to leave the TV with no picks at all.
+const PICKS_LIST = { type: 'object', properties: { picks: { type: 'array', items: {} } }, required: ['picks'] };
 
 const PICKS_SYSTEM = `You suggest films and series for a household in Ukraine to watch tonight on their TV.
 Give six well-known, well-rated picks that fit the request, mixing recent and classic, available widely on streaming.
@@ -191,9 +199,9 @@ export async function picks(env, body) {
   const request = str(body.request, 300).toLowerCase().replace(/\s+/g, ' ').trim();
   if (!request) throw new HttpError(400, 'no request');
   const lang = str(body.lang, 10) || 'uk-UA';
-  const out = await ask(env, { skill: 'tv-picks', role: 'quality', system: PICKS_SYSTEM, user: `Request: ${request}`, schema: PICKS_SCHEMA, maxTokens: 1200, cache: 3 * 24 * 3600 });
+  const out = await ask(env, { skill: 'tv-picks', role: 'quality', system: PICKS_SYSTEM, user: `Request: ${request}`, schema: PICKS_SCHEMA, check: PICKS_LIST, maxTokens: 1200, cache: 3 * 24 * 3600 });
   const found = [];
-  for (const p of list(out && out.picks, 8)) {
+  for (const p of list(out && out.picks.filter((pick) => fits(PICK_SCHEMA, pick)), 8)) {
     const hit = await tmdbFind(env, str(p.title, 120), p.year, p.kind === 'tv' ? 'tv' : 'movie', lang);
     if (hit) found.push({ ...hit, why: str(p.why, 160) });
   }
