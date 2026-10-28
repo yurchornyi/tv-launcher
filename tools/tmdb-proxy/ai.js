@@ -18,6 +18,37 @@ function fits(schema, value) {
 }
 
 /**
+ * The answer completed before the check: a text field the model left out (a light model drops the empty ones —
+ * channel_id, title, say when they do not apply) is the empty text it would have been. A field with a fixed set of
+ * values (action) is never guessed: missing, the answer stays unusable. 28.10: «увімкни щось смішне на вечір» came
+ * back from Sentra in a second and was thrown away for a missing field, so every spoken request fell back to search.
+ */
+function filled(schema, value) {
+  if (schema.type === 'object' && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    const out = { ...value };
+    for (const [key, field] of Object.entries(schema.properties || {})) {
+      if (out[key] === undefined || out[key] === null) {
+        if (field.type === 'string' && !field.enum) out[key] = '';
+      } else out[key] = filled(field, out[key]);
+    }
+    return out;
+  }
+  if (schema.type === 'array' && Array.isArray(value)) return value.map((v) => filled(schema.items, v));
+  return value;
+}
+
+/** The JSON object in a model's text: as it is, else the part from the first «{» to the last «}» (a word or two around it). */
+function objectIn(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    const start = text.indexOf('{'); const end = text.lastIndexOf('}');
+    if (start < 0 || end <= start) throw new SyntaxError('no JSON object');
+    return JSON.parse(text.slice(start, end + 1));
+  }
+}
+
+/**
  * One request to Sentra for a JSON object in `schema`; null when the answer is unusable. `skill` names the feature
  * for Sentra's learning and stats, `role` is fast (a remote waits) or quality, `cache` is how many seconds Sentra may
  * answer the same request from its cache.
@@ -53,7 +84,7 @@ async function ask(env, { skill, role, system, user, schema, maxTokens, cache = 
   const data = await response.json();
   const text = String(data.choices?.[0]?.message?.content ?? '').replace(/^```(?:json)?\s*|\s*```$/g, '');
   try {
-    const out = JSON.parse(text);
+    const out = filled(schema, objectIn(text));
     return fits(schema, out) ? out : null;
   } catch {
     return null;
