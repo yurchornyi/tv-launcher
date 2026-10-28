@@ -1,10 +1,23 @@
 name: Release
 
 # Publishes a launcher release every TV updates itself to (Updater, config.xml update_url), from what is on main.
-# Started by launcher/release.sh or from the Actions tab. The release key lives only in this repository's secrets
-# (RELEASE_KEYSTORE_B64, RELEASE_KEY_PASSWORD), so no particular computer is needed to release.
+# Runs by itself when a merge changes what goes into the APK (the next version, generic notes), and can be started
+# by launcher/release.sh or from the Actions tab for a chosen version or notes. The release key lives only in this
+# repository's secrets (RELEASE_KEYSTORE_B64, RELEASE_KEY_PASSWORD), so no particular computer is needed to release.
 
 on:
+  push:
+    branches: [main]
+    # What the APK is built from: the app, its Gradle build and the new-TV defaults (tools/make-defaults.py).
+    # The release's own version commit is pushed with the workflow's token, which starts no workflow.
+    paths:
+      - launcher/app/**
+      - launcher/build.gradle
+      - launcher/settings.gradle
+      - launcher/gradle.properties
+      - launcher/gradle/**
+      - backups/xgimi.json
+      - tools/make-defaults.py
   workflow_dispatch:
     inputs:
       version:
@@ -23,12 +36,14 @@ on:
 permissions:
   contents: write
 
+# One release at a time; merges that land meanwhile wait as one run, which builds the latest main.
 concurrency:
   group: release
   cancel-in-progress: false
 
 jobs:
   release:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     env:
       # SHA-256 of the release certificate every TV now trusts; a build signed otherwise is never published.
@@ -100,7 +115,8 @@ jobs:
         run: |
           OUT=$(mktemp -d)
           cp launcher/app/build/outputs/apk/release/app-release.apk "$OUT/tv-launcher.apk"
-          NOTES=${NOTES:-"Launcher $VERSION"}
+          # The TVs show the notes; a release a merge started has none of its own.
+          NOTES=${NOTES:-"Покращення й виправлення"}
           python3 - "$OUT" <<'PY'
           import hashlib, json, os, sys
           out = sys.argv[1]
@@ -115,8 +131,15 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add launcher/app/build.gradle launcher/app/src/main/assets/defaults.json
           git commit -q -m "launcher $VERSION (versionCode $CODE)"
+          # Another merge may have landed while this built: the version commit goes on top of it. A launcher change
+          # among those starts its own release next, so nothing it brings is left unreleased.
+          for try in 1 2 3; do
+            git push -q origin HEAD:main && break
+            [ "$try" = 3 ] && { echo "main kept moving: nothing published"; exit 1; }
+            git pull -q --rebase origin main
+          done
           git tag "v$VERSION"
-          git push -q origin HEAD:main "v$VERSION"
+          git push -q origin "v$VERSION"
           gh release create "v$VERSION" --title "TV Launcher $VERSION" --notes "$NOTES" \
             "$OUT/tv-launcher.apk" "$OUT/update.json"
           echo "Released $VERSION ($CODE): TVs pick it up within an hour."
