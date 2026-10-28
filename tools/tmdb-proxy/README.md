@@ -26,7 +26,9 @@ new key.
 (`role:fast` for a command, a remote waits; `role:quality` for picks), and each names its feature in
 `x-sentra-skill` (`tv-command`, `tv-picks`): Sentra picks the model, keeps the limits and the spend, learns each
 feature apart and answers repeats from its cache (three days for picks, asked in lower case so one phrase is one
-entry). A command's prompt stays short: at most 60 apps, 150 channels grouped under their app and 40 shelf titles.
+entry). A command's prompt stays short: at most 60 apps, 150 channels grouped under their app and 40 shelf titles,
+plus the TV's language (`lang`) when it sends one. Each pick is checked on its own: one with a bad year or kind is
+dropped and the rest still reach the TV; a year written as text ("2019") counts as the number.
 A Sentra that does not answer within its deadline plus two seconds ends in 504. (`/ai/about`, two lines on a film,
 was retired on 27.10.2026: nothing on the TV asked for it.) `SENTRA_URL` is in `wrangler.toml`; the `SENTRA_TOKEN`
 secret Sentra writes into

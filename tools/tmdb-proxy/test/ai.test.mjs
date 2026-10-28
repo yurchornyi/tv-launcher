@@ -82,3 +82,34 @@ test('the retired /ai/about is no AI route any more', async () => {
   assert.notEqual(r.status, 200);
   assert.equal(seen.length, 0);
 });
+
+test('a year written as text still counts, and one bad pick drops alone, not the whole list', async () => {
+  const searched = [];
+  globalThis.fetch = async (url) => {
+    if (String(url).startsWith('https://sentra.test')) {
+      return Response.json({ choices: [{ message: { content: JSON.stringify({ picks: [
+        { title: 'Paddington 2', year: '2017', kind: 'movie', why: 'Тепла комедія.' },
+        { title: 'Fleabag', year: '2016–2019', kind: 'tv', why: 'Смішно й гостро.' },
+        { title: 'No Kind', year: 2001, why: 'Без виду.' },
+        { title: 'The Grand Budapest Hotel', year: 2014, kind: 'movie', why: 'Яскрава пригода.' },
+      ] }) } }] });
+    }
+    const u = new URL(url);
+    searched.push({ query: u.searchParams.get('query'), year: u.searchParams.get('year') });
+    return Response.json({ results: [{ id: searched.length, title: u.searchParams.get('query'), backdrop_path: '/b.jpg' }] });
+  };
+  const r = await post('/ai/picks', { request: 'щось смішне' });
+  assert.equal(r.status, 200);
+  const { picks } = await r.json();
+  assert.deepEqual(picks.map((p) => p.title), ['Paddington 2', 'The Grand Budapest Hotel']);
+  assert.deepEqual(searched, [{ query: 'Paddington 2', year: '2017' }, { query: 'The Grand Budapest Hotel', year: '2014' }]);
+});
+
+test('a command tells the model the TV language when the TV sends it', async () => {
+  const seen = [];
+  sentra({ action: 'none', app: '', channel_id: '', title: '', query: '', say: 'ні' }, seen);
+  await post('/ai/command', { text: 'новини', lang: 'uk-UA' });
+  await post('/ai/command', { text: 'новини' });
+  assert.ok(seen[0].body.messages[1].content.startsWith('Request: новини\nLanguage: uk-UA\n\nApps:'));
+  assert.ok(!seen[1].body.messages[1].content.includes('Language:'));
+});
