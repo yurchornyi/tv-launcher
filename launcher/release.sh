@@ -1,5 +1,6 @@
 #!/bin/sh
-# Publishes a launcher release every TV updates itself to (Updater, config.xml update_url):
+# Publishes a launcher release every TV updates itself to (Updater, config.xml update_url). A merge to main that
+# changes the APK releases by itself (the next version, generic notes); this is for a chosen version or notes:
 #   launcher/release.sh 1.8 "What changed"      (no version: the next one)
 # The build happens on GitHub (.github/workflows/release.yml), from what is pushed to main, signed with the release
 # key kept in the repository's secrets: no particular computer is needed, and nothing uncommitted here goes in.

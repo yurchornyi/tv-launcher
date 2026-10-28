@@ -108,10 +108,11 @@ Things that bit us or contributors, so they don't bite you. Commands use `tools/
   default this fork's GitHub releases) hourly, when the screen turns on and twice a day in the background over
   Wi-Fi, downloads a newer build and checks it as KIK does (SHA-256, package, version, signature). Where Android
   allows it the launcher installs it unasked while nobody is at the remote; elsewhere Home offers "Update / Later"
-  and Android asks once to confirm; the Settings menu keeps "Update to X". Publish with
-  `launcher/release.sh 2.7 "what changed"` from the machine that signs the builds (the debug key in
-  `~/.android/debug.keystore`): a build signed elsewhere is refused as foreign. `tools/kyivstar-channels.py`
-  refreshes the Kyivstar TV channel list before a release when needed.
+  and Android asks once to confirm; the Settings menu keeps "Update to X". A merge to main that changes the APK
+  publishes the next version by itself (`.github/workflows/release.yml`, signed with the release key in the
+  repository's secrets: a build signed otherwise is refused as foreign); `launcher/release.sh 2.7 "what changed"`
+  publishes a chosen version or notes. `tools/kyivstar-channels.py` refreshes the Kyivstar TV channel list before a
+  release when needed.
 - **The screensaver as a music player**: the launcher's "Clock and music" screensaver shows the clock, and while
   music plays (Spotify, SmartTube...) the full-screen player with the cover and a backdrop in its colours. Pick
   it in Settings → System → Screensaver, or over adb:
