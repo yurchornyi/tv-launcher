@@ -1,7 +1,8 @@
 """The tv-launcher-tmdb Worker (tools/tmdb-proxy) and what SENTRA.md forbids.
 
 The Worker's own tests (accounts kept apart, the PIN only as a hash, wrong PINs locking, shelves that come back empty
-instead of a 500) run under Node (tools/tmdb-proxy/test) and skip without it. The rest reads the sources: no AI
+instead of a 500, the AI counting and remembering per profile with only names reaching Sentra) run under Node
+(tools/tmdb-proxy/test) and skip without it. The rest reads the sources: no AI
 provider is called and no provider key is kept anywhere, the AI goes only through Sentra with a role, never a model,
 the APK carries no TMDB key, and ADMIN_EMAIL is a secret, not a var.
 

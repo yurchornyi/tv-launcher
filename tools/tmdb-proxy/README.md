@@ -32,10 +32,23 @@ dropped and the rest still reach the TV; a year written as text ("2019") counts 
 A Sentra that does not answer within its deadline plus two seconds ends in 504. (`/ai/about`, two lines on a film,
 was retired on 27.10.2026: nothing on the TV asked for it.) `SENTRA_URL` is in `wrangler.toml`; the `SENTRA_TOKEN`
 secret Sentra writes into
-this Worker when the project is connected. Each address gets 12 AI requests a minute (the `AI_LIMIT` rate limit),
-and all TVs together 60 (`AI_GLOBAL`), since the URL is public. `GET /` is a few lines on what this Worker is: the
-address Sentra watches.
+this Worker when the project is connected. `GET /` is a few lines on what this Worker is: the address Sentra watches.
 Without `SENTRA_TOKEN` the routes answer 503 and the TV quietly uses plain search.
+
+Each AI request says who asks (`asker`; the launcher's `AiClient.Who`): the account by this TV's sign-in token in
+`Authorization` (checked against `ACCOUNTS`; never the e-mail or the PIN), the Android profile the launcher runs in
+(`who.profile`: `id`, `u0` for the main one, and a name) and this TV (`who.device`: the id the launcher made once, and
+the TV's name). An id that is too long or has other characters counts as not sent. Of all this only
+«профіль <name> · <TV>» (40 characters at most) leaves the Worker, as `sentra.who` in the body: Sentra takes
+`sentra` out before any model sees the request and shows it to the owner under the answer.
+- Limits: 12 AI requests a minute per asker (`AI_LIMIT`): the account and profile, so two TVs with one profile
+  share a count and two profiles count apart; without an account, the TV (and its profile); a TV that says nothing,
+  its address. Each address also gets 24 (`AI_ADDRESS`), since the asker is the TV's own word, and all TVs together
+  60 (`AI_GLOBAL`), since the URL is public.
+- Picks do not repeat for a profile: the films it was shown in the last three days (up to 30, in `ACCOUNTS` under
+  `h:<asker>`) are listed in the prompt as ones to leave out, and dropped if the model offers them anyway. Each
+  profile keeps its own list; an address alone keeps none. This is not an answer cache (SENTRA.md): nothing from it
+  reaches the TV.
 
 ## Kyivstar TV (kyivstar.js)
 

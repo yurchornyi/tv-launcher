@@ -58,7 +58,12 @@ final class Account {
     }
 
     static boolean signedIn(Context ctx) {
-        return !prefs(ctx).getString("token", "").isEmpty();
+        return !token(ctx).isEmpty();
+    }
+
+    /** This TV's sign-in to the account ("" while signed out): the AI requests send it too, to say whose TV asks. */
+    static String token(Context ctx) {
+        return prefs(ctx).getString("token", "");
     }
 
     static String email(Context ctx) {
@@ -74,8 +79,11 @@ final class Account {
         return !base(ctx).isEmpty();
     }
 
-    /** This TV's own id, so it does not take in the state it sent itself. */
-    private static String deviceId(Context ctx) {
+    /**
+     * This TV's own id, made once and kept through sign-outs: so it does not take in the state it sent itself, and so
+     * the AI can tell this TV from the others (AiClient.Who).
+     */
+    static String deviceId(Context ctx) {
         SharedPreferences p = prefs(ctx);
         String id = p.getString("device_id", "");
         if (id.isEmpty()) {
