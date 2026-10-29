@@ -26,8 +26,8 @@ android {
         applicationId 'com.gathin.tvhome'
         minSdk 26
         targetSdk 34
-        versionCode 68
-        versionName '1.16'
+        versionCode 69
+        versionName '1.17'
         // Ukrainian only: res/values is Ukrainian, and the libraries' other translations stay out of the APK.
         resourceConfigurations += ['uk']
     }
