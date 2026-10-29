@@ -50,7 +50,7 @@ final class Weather {
     /** Fetches a new reading when the cached one is older than MAX_AGE_MS; the listener hears only a change. */
     void refresh(Listener listener) {
         if (busy) return;
-        if (System.currentTimeMillis() - prefs().getLong("reading_at", 0) < MAX_AGE_MS) return;
+        if (ShelfFeed.fresh(prefs().getLong("reading_at", 0), MAX_AGE_MS)) return;
         Location where = lastLocation();
         if (where == null) return;
         busy = true;

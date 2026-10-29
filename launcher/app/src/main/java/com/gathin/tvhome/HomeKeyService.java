@@ -52,7 +52,16 @@ public class HomeKeyService extends AccessibilityService {
             if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
                 Intent open = settingsPanel ? new Intent(this, QuickSettingsActivity.class)
                         : new Intent(Settings.ACTION_SETTINGS);
-                startActivity(open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                // China-market MIUI answers no standard Settings intent (MainActivity.systemIntent): its own then.
+                if (open.resolveActivity(getPackageManager()) == null) {
+                    open = new Intent().setComponent(new android.content.ComponentName(
+                            "com.xiaomi.mitv.settings", "com.xiaomi.mitv.settings.entry.MainActivity"));
+                }
+                try {
+                    startActivity(open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                } catch (RuntimeException e) {
+                    // Nothing opens Settings here: the key does nothing rather than take the launcher down with it.
+                }
             }
             return true;
         }

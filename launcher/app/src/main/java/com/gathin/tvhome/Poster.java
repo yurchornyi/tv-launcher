@@ -126,8 +126,14 @@ final class Poster {
      */
     static String clean(String title) {
         if (title == null) return "";
-        String t = title.split("\\s+/\\s+")[0].split("(?i)\\s*([.,:|(\\[–—-]\\s*)?(сезон|season|серія|серия|episode|s\\d{1,2}\\s*e\\d)")[0];
+        String t = first(title.split("\\s+/\\s+"));
+        t = first(t.split("(?iu)\\s*([.,:|(\\[–—-]\\s*)?(сезон|season|серія|серия|episode|s\\d{1,2}\\s*e\\d)"));
         return t.replaceAll("[\\s.,:|–—-]+$", "").trim();
+    }
+
+    /** split()'s first part; split() gives none at all for a title that is only the separator ("Episode"). */
+    private static String first(String[] parts) {
+        return parts.length == 0 ? "" : parts[0];
     }
 
     private static boolean same(String a, String b) {

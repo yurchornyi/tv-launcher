@@ -68,7 +68,11 @@ public class NowPlayingListener extends NotificationListenerService {
                 Recorder r = new Recorder(c);
                 c.registerCallback(r);
                 recorders.add(r);
-                r.save(true);
+                // Only read here unless it plays: this runs whenever any app's session comes or goes, and writing
+                // then put SmartTube's paused video over a newer report (KIK's) as the latest.
+                PlaybackState s = c.getPlaybackState();
+                if (s != null && s.getState() == PlaybackState.STATE_PLAYING) r.save(true);
+                else r.read();
                 continue;
             }
             if (!ShelfFeed.music(c.getPackageName())) continue;
@@ -118,12 +122,17 @@ public class NowPlayingListener extends NotificationListenerService {
 
         void save(boolean now) {
             if (!now && android.os.SystemClock.elapsedRealtime() - savedAt < 5000) return;
+            if (read()) write();
+        }
+
+        /** Takes in what the session shows now; false when it has no title or the player's process died mid-call. */
+        boolean read() {
             try {
                 MediaMetadata m = controller.getMetadata();
                 PlaybackState s = controller.getPlaybackState();
                 if (s != null) last = s;
                 String t = m == null ? null : m.getString(MediaMetadata.METADATA_KEY_TITLE);
-                if (t == null || t.isEmpty()) return;
+                if (t == null || t.isEmpty()) return false;
                 if (android.util.Log.isLoggable("TvHome.Meta", android.util.Log.DEBUG)) {
                     StringBuilder sb = new StringBuilder();
                     for (String k : m.keySet()) {
@@ -141,9 +150,9 @@ public class NowPlayingListener extends NotificationListenerService {
                 duration = m.getLong(MediaMetadata.METADATA_KEY_DURATION);
                 open = open(m);
             } catch (RuntimeException e) {   // the player's process died mid-call: keep what was read before
-                return;
+                return false;
             }
-            write();
+            return true;
         }
 
         /** The report as last read, its place moved on by however long it has been playing since. */

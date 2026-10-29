@@ -54,7 +54,11 @@ final class NowPlaying {
     private boolean closed;
     /** When it was closed: a player answering the pause with a last "playing" state must not reopen it. */
     private long closedAt;
-    /** The same moment by the wall clock, which reports (PlayerReport) carry: only a newer report reopens it. */
+    /**
+     * The same moment by the wall clock, which reports (PlayerReport) carry: only a newer report reopens it. Kept on
+     * disk ("now_playing" prefs) and checked whether or not the card is closed now: a report closed once came back
+     * after another app played, or after the TV's memory cleaner restarted Home.
+     */
     private long closedWall;
     /** Reports from players (PlayerReport) count here: the launcher's card, not the screensaver. */
     private boolean reports;
@@ -82,6 +86,7 @@ final class NowPlaying {
     NowPlaying(Context ctx, Listener listener) {
         this.ctx = ctx;
         this.listener = listener;
+        closedWall = ctx.getSharedPreferences("now_playing", Context.MODE_PRIVATE).getLong("closed_at", 0);
     }
 
     /** Posters for videos that send none, found through this Worker (config.xml tmdb_proxy). */
@@ -240,7 +245,7 @@ final class NowPlaying {
         }
         // A recorded app (SmartTube) gets no card after Home: its Continue is on its shelf (MainActivity.withContinue).
         if (r != null && NowPlayingListener.RECORDED.contains(r.pkg)) r = null;
-        if (r != null && next == null && (!closed || r.at > closedWall)) {
+        if (r != null && next == null && r.at > closedWall) {
             closed = false;
             reported = r;
             next = new Track(r.title, r.subtitle, label(r.pkg), r.pkg, reportPicture(r), r.duration, false);
@@ -501,6 +506,7 @@ final class NowPlaying {
         closed = true;
         closedAt = SystemClock.elapsedRealtime();
         closedWall = System.currentTimeMillis();
+        ctx.getSharedPreferences("now_playing", Context.MODE_PRIVATE).edit().putLong("closed_at", closedWall).apply();
         pick();
     }
 

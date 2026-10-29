@@ -20,6 +20,8 @@ public class BluetoothReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         String action = intent.getAction();
         if (TEST_BANNER.equals(action)) {
+            // This receiver is exported without a permission: any app could name it to put a banner over the screen.
+            if (!(this instanceof BluetoothTestReceiver)) return;
             String name = intent.getStringExtra("name");
             AudioBanner.show(context, name != null ? name.replace('_', ' ') : "Headphones",
                     intent.getIntExtra("battery", -1), intent.getBooleanExtra("speaker", false));

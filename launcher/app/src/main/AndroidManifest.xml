@@ -19,6 +19,8 @@
     <uses-permission android:name="android.permission.READ_TV_LISTINGS" />
     <!-- Self-update (Updater): hands a downloaded build to Android's installer, which asks to confirm. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Android 12+: without it USER_ACTION_NOT_REQUIRED is ignored and every self-update asks (Updater.silent). -->
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- The full-screen player keeps the screen on, with no screensaver, while it is up (MainActivity.holdScreen). -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />

@@ -147,6 +147,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private int feedGen;
     private List<ShelfFeed.Item> feedItems;
     private int feedIndex;
+    /**
+     * The item whose backdrop and pill are on screen. feedIndex moves on before the next backdrop arrives (and stays
+     * moved when it fails to): Watch opens this one, the film on screen, not the one still on its way.
+     */
+    private ShelfFeed.Item feedShown;
     /** The channel whose programmes the shelf's posters show now (a focused channel tile), null for the app's own. */
     private String feedChannel;
     private float lastDockTop;
@@ -1151,6 +1156,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             @Override public void afterTextChanged(android.text.Editable e) { if (searching) showSearchResults(e.toString()); }
         });
         searchField.setOnEditorActionListener((v, actionId, event) -> {
+            // A hardware Enter comes here on its down and again on its up: only the down counts.
+            if (event != null && event.getAction() != KeyEvent.ACTION_DOWN) return true;
             if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
                     || actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE
                     || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
@@ -1369,15 +1376,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         askForTvListings();
         handler.removeCallbacks(kikOffer);
         handler.postDelayed(kikOffer, 4000);
-        if (pendingSearch != null) {
-            String q = pendingSearch;
-            pendingSearch = null;
-            handler.post(() -> {
-                if (!hasWindowFocus() || isFinishing()) return;
-                openSearch(q);
-                if (!q.isEmpty() && SearchIndex.filter(searchAll, q).isEmpty()) openInKik(q);
-            });
-        }
+        if (pendingSearch != null) handler.post(this::runPendingSearch);
         nowPlaying.start();
         nowPlaying.stopPaused();   // a film or song left paused must not wake on the headphones' Play
         AudioDevices.addListener(audioListener);
@@ -1392,9 +1391,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             reloadApps(true, appsMayHaveChanged());
         } else {
             // Back from a dialog over Home (not another app): the shelf that onPause cleared comes back as it was.
+            // Only with a dock: a plain grid (dock_row false) has no shelf to bring back.
             grid.post(() -> {
                 View f = getCurrentFocus();
-                if (homeInFront && f != null && f.getId() == R.id.card && lastFocused >= 0 && lastFocused < COLUMNS) {
+                if (homeInFront && dockRow && f != null && f.getId() == R.id.card && lastFocused >= 0
+                        && lastFocused < COLUMNS) {
                     showHero(lastFocused, lastDockTop);
                 }
             });
@@ -1486,8 +1487,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
         if (restoreFocus) {
             // Keep a focused footer at the end even when the app count changes.
-            if (restoreLibrary) grid.post(this::focusLibrary);
-            else restoreFocus();
+            if (restoreLibrary) {
+                // restoreFocus() marks the tiles ready; this way round it must too, or a new app's card prompt
+                // waited for the next resume.
+                grid.post(() -> {
+                    focusLibrary();
+                    tilesReady = true;
+                    showCardPrompt();
+                });
+            } else restoreFocus();
         } else {
             // A package change must not steal focus from a top button or the Inputs popup.
             int pos = adapter.positionOf(returnKey);
@@ -1596,7 +1604,20 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (hasFocus) {
             if (libraryFocusPending && appLibrary == null) focusLibrary();
             showCardPrompt();
+            runPendingSearch();
         }
+    }
+
+    /**
+     * What the recogniser heard (startVoiceScreen), searched once Home has its window back. It waits for the focus:
+     * that usually comes after onResume, and a query cleared before it came was lost.
+     */
+    private void runPendingSearch() {
+        if (pendingSearch == null || !hasWindowFocus() || isFinishing()) return;
+        String q = pendingSearch;
+        pendingSearch = null;
+        openSearch(q);
+        if (!q.isEmpty() && SearchIndex.filter(searchAll, q).isEmpty()) openInKik(q);
     }
 
     @Override
@@ -2308,7 +2329,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         ShelfFeed.ItemsListener onItems = items -> {
             if (gen != feedGen || !pkg.equals(feedPkg)) return;
             boolean first = feedItems == null;
-            ShelfFeed.Item shown = first || feedItems.isEmpty() ? null : feedItems.get(feedIndex % feedItems.size());
+            ShelfFeed.Item shown = first || feedItems.isEmpty() ? null
+                    : feedShown != null ? feedShown : feedItems.get(feedIndex % feedItems.size());
             // Music is no film to go back to: a music app's shelf has no Continue entry, only what is popular.
             feedItems = ShelfFeed.music(pkg) ? items : withContinue(pkg, items);
             if (first) {
@@ -2448,7 +2470,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         ambientPlay.requestFocus();
         wakeAmbientControls();
         holdScreen(true);
-        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (ambientTurn != null) ambientTurn.cancel();
         ambientCover.animate().cancel();
         ambientCover.setRotationX(0f);
@@ -2549,9 +2570,20 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     /** A wake lock for the full-screen player, so neither sleep nor the screensaver comes while it is up. */
     private android.os.PowerManager.WakeLock screenHold;
+    private static final long SCREEN_HOLD_MS = 4 * 60 * 60 * 1000L;   // four hours at most, in case Home is left without a key
+    /** The window's keep-screen-on goes with the lock: it has no time limit of its own, so a paused song held a TV on. */
+    private final Runnable screenHoldOver = () ->
+            getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
     @SuppressWarnings("deprecation")   // the screen-bright lock is what keeps a TV's dream away; no newer way exists
     private void holdScreen(boolean on) {
+        handler.removeCallbacks(screenHoldOver);
+        if (on) {
+            getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            handler.postDelayed(screenHoldOver, SCREEN_HOLD_MS);
+        } else {
+            getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        }
         if (on) {
             if (screenHold == null) {
                 android.os.PowerManager pm = getSystemService(android.os.PowerManager.class);
@@ -2560,7 +2592,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                         | android.os.PowerManager.ON_AFTER_RELEASE, "TvHome:player");
                 screenHold.setReferenceCounted(false);
             }
-            screenHold.acquire(4 * 60 * 60 * 1000L);   // four hours at most, in case Home is left without a key
+            screenHold.acquire(SCREEN_HOLD_MS);
         } else if (screenHold != null && screenHold.isHeld()) {
             screenHold.release();
         }
@@ -2612,7 +2644,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (ambientScreen.getVisibility() != View.VISIBLE || ambientHiding) return;
         handler.removeCallbacks(ambientRest);
         holdScreen(false);
-        getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         // The card may be a track behind (it only follows while the dock has focus): bring it up to date first.
         if (nowPlaying.track() != null) showNowPlaying();
         else hideNowPlaying(false);
@@ -2904,7 +2935,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     /** Opens what the shelf shows: the video itself, the film's page where the app has one, else the app. */
     private void openFeedItem() {
         if (feedPkg == null || feedItems == null || feedItems.isEmpty()) return;
-        openItem(feedPkg, feedItems.get(feedIndex % feedItems.size()));
+        openItem(feedPkg, feedShown != null ? feedShown : feedItems.get(feedIndex % feedItems.size()));
     }
 
     /** Opens a shelf item (also from Search and the Continue row) and remembers it. */
@@ -3059,7 +3090,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     /** Whether the poster on the shelf now has a button (see shelfLabel). */
     private boolean shelfOpens() {
         if (feedPkg == null || feedItems == null || feedItems.isEmpty()) return false;
-        return shelfLabel(feedPkg, feedItems.get(feedIndex % feedItems.size())) != 0;
+        return shelfLabel(feedPkg, feedShown != null ? feedShown : feedItems.get(feedIndex % feedItems.size())) != 0;
     }
 
     /**
@@ -3168,7 +3199,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             i.setFlags(i.getFlags() & ~(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                     | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION));
             open(i);
-        } catch (java.net.URISyntaxException e) {
+        } catch (java.net.URISyntaxException | RuntimeException e) {
+            // parseUri also throws NumberFormatException and the like for a typed extra it cannot read (i.pos=abc).
             launchApp(pkg);
         }
     }
@@ -3468,12 +3500,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         return out;
     }
 
-    /** The apps the launcher ships channel lists for (assets/channels). */
+    /**
+     * The apps the launcher ships channel lists for (assets/channels), each by the package installed here: a list is
+     * named after the app's first package (Aliases), so Kyivstar TV, com.kyivstar.tv.androidtv on the TCL, counted as
+     * not installed and its channels were missing from Search and the AI.
+     */
     private List<String> liveChannelPackages() {
         List<String> out = new ArrayList<>();
         try {
             for (String f : getAssets().list("channels")) {
-                if (f.endsWith(".json")) out.add(f.substring(0, f.length() - 5));
+                if (f.endsWith(".json")) out.add(Aliases.installed(getPackageManager(), f.substring(0, f.length() - 5)));
             }
         } catch (java.io.IOException ignored) {
         }
@@ -3568,7 +3604,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (requestCode == TV_LISTINGS_REQUEST) {
             // Whatever was allowed shows at once: the posters, the temperature and Wi-Fi name, the headphones.
             stopFeed();
-            if (lastFocused >= 0 && lastFocused < COLUMNS && adapter.appCount() > 0) showHero(lastFocused, lastDockTop);
+            if (dockRow && lastFocused >= 0 && lastFocused < COLUMNS && adapter.appCount() > 0) {
+                showHero(lastFocused, lastDockTop);
+            }
             if (weather != null) refreshWeather();
             updateWifiLabel();
             AudioDevices.refresh(this);
@@ -3665,6 +3703,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         ai.command(b.done(words), a -> {
             if (gen != aiGen || !searching) return;
             showSearchNote(null);
+            // Typed over, or listening again, while the answer came: it is to words no longer there.
+            if (!words.trim().equals(searchField.getText().toString().trim())) return;
             if (a == null || !doAiAction(a)) {
                 if (!(a == null ? openHeard(words) : focusSearchResult())) {
                     android.view.inputmethod.InputMethodManager imm = getSystemService(android.view.inputmethod.InputMethodManager.class);
@@ -3945,12 +3985,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         shelfFeed.image(item.backdrop, (backdrop, bitmap) -> {
             if (gen != feedGen || !pkg.equals(feedPkg)) return;
             // Paged on meanwhile (Left/Right on the pill): only the item now chosen may draw.
-            if (feedItems == null || feedItems.isEmpty() || feedItems.get(feedIndex % feedItems.size()) != item) return;
+            if (feedItems == null || feedItems.isEmpty() || !sameItem(feedItems.get(feedIndex % feedItems.size()), item)) {
+                return;
+            }
             if (bitmap == null) {
                 // This backdrop failed to load: move on to the next one later instead of stopping here.
                 if (!shelfOpen.hasFocus()) handler.postDelayed(feedTick, 8000);
                 return;
             }
+            feedShown = item;
             // Centre-cropped by itself, so it shares the banners' FIT_XY and a dissolve never changes its shape.
             Drawable art = new CropDrawable(new BitmapDrawable(getResources(), bitmap));
             heroArt.animate().cancel();
@@ -3973,7 +4016,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                         && shelfFeed.knownNetflixId(item.type, item.id) == null) {
                     shelfFeed.netflixId(item.type, item.id, id -> {
                         if (feedItems != null && !feedItems.isEmpty() && pkg.equals(feedPkg)
-                                && feedItems.get(feedIndex % feedItems.size()) == item) {
+                                && sameItem(feedItems.get(feedIndex % feedItems.size()), item)) {
                             int found = shelfLabel(pkg, item);
                             if (found != 0) shelfOpen.setText(found);
                             positionShelfTitle();
@@ -4030,11 +4073,18 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 heroArtShown = art;
                 title.run();
             }
+            // title may have run at once and moved focus, which can stop the feed (feedItems null) under us.
+            if (gen != feedGen || feedItems == null || feedItems.size() < 2) return;
             if (!shelfOpen.hasFocus()) handler.postDelayed(feedTick, 8000);   // standing still while choosing
             // Fetch the next backdrop now, so the swap does not wait on the network.
             ShelfFeed.Item next = feedItems.get((feedIndex + 1) % feedItems.size());
             shelfFeed.image(next.backdrop, (b, bmp) -> { });
         });
+    }
+
+    /** The same shelf item, also when a fresher list (or withContinue) made a new object for it. */
+    private static boolean sameItem(ShelfFeed.Item a, ShelfFeed.Item b) {
+        return a == b || (a.title.equals(b.title) && java.util.Objects.equals(a.backdrop, b.backdrop));
     }
 
     private void stopFeed() {
@@ -4045,6 +4095,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (feedPkg == null) return;
         feedPkg = null;
         feedItems = null;
+        feedShown = null;
         shelfTitle.animate().cancel();
         shelfTitle.animate().alpha(0f).setDuration(160).start();
         shelfLive.animate().cancel();
@@ -4075,6 +4126,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             showHero(lastHeroPosition, lastDockTop);
         } else if (nowPlaying.track() == null) {
             hideNowPlaying(animations);
+        }
+        // npTick stops itself while paused; playing again (or the next track, after a moment of buffering) restarts
+        // it, else the bar and the times stood still on the full screen or a card that kept its place.
+        NowPlaying.Track t = nowPlaying.track();
+        if (t != null && t.playing && (ambientScreen.getVisibility() == View.VISIBLE
+                || npCard.getVisibility() == View.VISIBLE)) {
+            handler.removeCallbacks(npTick);
+            handler.postDelayed(npTick, 1000);
         }
     }
 
@@ -5276,6 +5335,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             addInputRow(rows, popup, R.drawable.ic_livetv, getString(R.string.live_tv), -1, () -> open(liveTvIntent));
         }
         if (rows.getChildCount() == 0) {
+            // glassPopup() made it the open one, and a popup never shown never dismisses: it held off the update
+            // offer, the idle update and the permission ask until another popup opened.
+            if (openPopup == popup) openPopup = null;
             Toast.makeText(this, R.string.no_inputs, Toast.LENGTH_SHORT).show();
             return;
         }

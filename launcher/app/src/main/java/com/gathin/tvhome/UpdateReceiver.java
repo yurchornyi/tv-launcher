@@ -13,6 +13,8 @@ import android.widget.Toast;
 public class UpdateReceiver extends BroadcastReceiver {
 
     static final String ACTION = "com.gathin.tvhome.action.UPDATE_STATUS";
+    /** Set on the launcher's own update (Updater.install), not on KIK's install (AppInstaller), which ends here too. */
+    static final String EXTRA_SELF = "com.gathin.tvhome.extra.SELF";
 
     @Override
     public void onReceive(Context context, Intent intent) {
@@ -27,6 +29,11 @@ public class UpdateReceiver extends BroadcastReceiver {
                 }
             }
         } else if (status != PackageInstaller.STATUS_SUCCESS) {
+            // A build Android refused would otherwise stay "ready" for good: no newer one would be fetched, and each
+            // return to Home would try it again. One the person turned down (aborted) stays on offer.
+            if (intent.getBooleanExtra(EXTRA_SELF, false) && status != PackageInstaller.STATUS_FAILURE_ABORTED) {
+                new Updater(context, null, null).refused(status != PackageInstaller.STATUS_FAILURE_STORAGE);
+            }
             String why = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE);
             Toast.makeText(context, context.getString(R.string.update_failed) + (why != null ? "\n" + why : ""),
                     Toast.LENGTH_LONG).show();
@@ -42,6 +49,8 @@ public class UpdateReceiver extends BroadcastReceiver {
         @Override
         public void onReceive(Context context, Intent intent) {
             if (!Intent.ACTION_MY_PACKAGE_REPLACED.equals(intent.getAction())) return;
+            Updater updater = new Updater(context, null, null);
+            if (updater.readyVersion() == null) updater.clearReady();   // the installed download need not stay
             android.content.SharedPreferences p = context.getSharedPreferences("updater", Context.MODE_PRIVATE);
             long at = p.getLong(Updater.INSTALLING_AT, 0);
             p.edit().remove(Updater.INSTALLING_AT).apply();

@@ -167,7 +167,7 @@ final class ShelfFeed {
             if (!known.isEmpty()) lists.put(group, known);
         }
         if (!known.isEmpty()) listener.onItems(known);
-        boolean fresh = System.currentTimeMillis() - prefs().getLong(group + "_at", 0) < MAX_AGE_MS;
+        boolean fresh = fresh(prefs().getLong(group + "_at", 0), MAX_AGE_MS);
         if (fresh && !known.isEmpty()) return;
         Long failed = failedAt.get(group);
         if (failed != null && System.currentTimeMillis() - failed < RETRY_MS) return;
@@ -236,7 +236,10 @@ final class ShelfFeed {
             if (missing.isEmpty() || io.isShutdown()) return;
             io.execute(() -> {
                 SharedPreferences.Editor e = art().edit();
-                for (Listened.Song song : missing) e.putString(song.key(), lookUpCover(song));
+                for (Listened.Song song : missing) {
+                    String cover = lookUpCover(song);
+                    if (cover != null) e.putString(song.key(), cover);   // not offline: that song is looked up again
+                }
                 e.apply();
                 main.post(() -> listener.onItems(mixMine(popular)));
             });
@@ -270,7 +273,7 @@ final class ShelfFeed {
         return out;
     }
 
-    /** A song's cover at 600 px from iTunes' search, or "" when it finds none. */
+    /** A song's cover at 600 px from iTunes' search, "" when it finds none, null when it could not be asked. */
     private String lookUpCover(Listened.Song song) {
         try {
             String url = "https://itunes.apple.com/search?entity=song&limit=1&country=ua&term="
@@ -280,7 +283,7 @@ final class ShelfFeed {
             return r.getJSONObject(0).optString("artworkUrl100", "").replace("100x100bb", "600x600bb");
         } catch (Exception e) {
             Log.w(TAG, "cover lookup failed: " + e);
-            return "";
+            return null;
         }
     }
 
@@ -323,7 +326,7 @@ final class ShelfFeed {
             known = parse(prefs().getString(group, ""), false);
             lists.put(group, known);
         }
-        boolean fresh = System.currentTimeMillis() - prefs().getLong(group + "_at", 0) < MAX_AGE_MS;
+        boolean fresh = fresh(prefs().getLong(group + "_at", 0), MAX_AGE_MS);
         if (fresh || io.isShutdown()) {
             listener.onItems(known);
             return;
@@ -398,8 +401,18 @@ final class ShelfFeed {
                 File f = new File(cacheDir(), name);
                 if (!f.isFile()) {
                     byte[] data = backdrop.startsWith("http") ? getPicture(backdrop) : get(IMAGES + backdrop, false);
-                    try (FileOutputStream out = new FileOutputStream(f)) {
+                    // Written aside and renamed: a write cut short (a full disk, the launcher killed) left a truncated
+                    // file that decoded half grey and stayed.
+                    File part = new File(cacheDir(), name + ".part");
+                    try (FileOutputStream out = new FileOutputStream(part)) {
                         out.write(data);
+                    } catch (Exception e) {
+                        part.delete();
+                        throw e;
+                    }
+                    if (!part.renameTo(f)) {
+                        part.delete();
+                        throw new java.io.IOException("rename failed");
                     }
                     trimCache(f);
                 }
@@ -690,6 +703,15 @@ final class ShelfFeed {
         if (f.equals(keep)) return Long.MAX_VALUE;
         long t = f.lastModified();
         return t > now ? 0 : t;
+    }
+
+    /**
+     * Whether a time saved at `at` is less than `max` ago. One in the future (saved while the TV's clock was ahead)
+     * is not: counted as fresh, it held the cache until the real clock caught up.
+     */
+    static boolean fresh(long at, long max) {
+        long age = System.currentTimeMillis() - at;
+        return age >= 0 && age < max;
     }
 
     private SharedPreferences prefs() {

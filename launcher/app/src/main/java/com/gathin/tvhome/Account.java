@@ -111,8 +111,14 @@ final class Account {
                 AppSettings.forget(ctx);
                 prefs(ctx).edit().putString("token", r.getString("token")).putString("email", r.optString("email", email))
                         .putBoolean("admin", r.optBoolean("admin")).putLong("remote_updated", 0).remove("synced").remove("apps").apply();
-                if (r.optBoolean("created") || r.optLong("updated") == 0) push(ctx);
-                else pull(ctx, true);
+                // Signed in from here on, whatever the first sync does: reporting its failure as a failed sign-in
+                // showed the form again on a TV that was signed in, and each retry left one more token behind.
+                try {
+                    if (r.optBoolean("created") || r.optLong("updated") == 0) push(ctx);
+                    else pull(ctx, true);
+                } catch (Exception e) {
+                    Log.w(TAG, "first sync failed: " + e);
+                }
             } catch (HttpError e) {
                 error = e.message;
             } catch (Exception e) {

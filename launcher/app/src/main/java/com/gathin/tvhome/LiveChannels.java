@@ -227,6 +227,9 @@ final class LiveChannels {
     }
 
     private static final Map<android.graphics.Bitmap, android.graphics.Bitmap> TRIMMED = new java.util.WeakHashMap<>();
+    /** Logos with nothing to trim, kept apart: in TRIMMED as their own value, they held their key and never went. */
+    private static final java.util.Set<android.graphics.Bitmap> UNTRIMMED =
+            Collections.newSetFromMap(new java.util.WeakHashMap<>());
 
     /**
      * A logo without the clear margins round it: many come with more empty room on one side, and fitted as they are
@@ -236,6 +239,7 @@ final class LiveChannels {
         if (b == null || !b.hasAlpha()) return b;
         android.graphics.Bitmap known = TRIMMED.get(b);
         if (known != null) return known;
+        if (UNTRIMMED.contains(b)) return b;
         int w = b.getWidth(), h = b.getHeight();
         int[] px = new int[w * h];
         b.getPixels(px, 0, w, 0, 0, w, h);
@@ -251,7 +255,8 @@ final class LiveChannels {
         }
         android.graphics.Bitmap out = right < 0 || (left == 0 && top == 0 && right == w - 1 && bottom == h - 1) ? b
                 : android.graphics.Bitmap.createBitmap(b, left, top, right - left + 1, bottom - top + 1);
-        TRIMMED.put(b, out);
+        if (out == b) UNTRIMMED.add(b);
+        else TRIMMED.put(b, out);
         return out;
     }
 

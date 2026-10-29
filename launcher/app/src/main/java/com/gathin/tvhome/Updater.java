@@ -93,8 +93,7 @@ final class Updater {
             listener.onUpdateReady(readyVersion());
             return;
         }
-        long since = System.currentTimeMillis() - prefs().getLong("checked_at", 0);
-        if (since < (now ? 3 * 60 * 1000L : CHECK_MS)) {
+        if (ShelfFeed.fresh(prefs().getLong("checked_at", 0), now ? 3 * 60 * 1000L : CHECK_MS)) {
             Runnable r = upToDate;
             if (now && r != null) main.post(r);   // looked a moment ago and found nothing
             return;
@@ -107,7 +106,7 @@ final class Updater {
     /** The hourly check on the caller's thread (UpdateJob runs it on its own); quiet when one is already waiting. */
     void checkBlocking() {
         if (!enabled() || readyVersion() != null) return;
-        if (System.currentTimeMillis() - prefs().getLong("checked_at", 0) < CHECK_MS) return;
+        if (ShelfFeed.fresh(prefs().getLong("checked_at", 0), CHECK_MS)) return;
         if (SystemClock.elapsedRealtime() - failedAt < RETRY_MS) return;
         if (BUSY.compareAndSet(false, true)) fetch();
     }
@@ -119,7 +118,8 @@ final class Updater {
             String name = info.optString("versionName", String.valueOf(code));
             String apk = info.optString("apk", "");
             prefs().edit().putLong("checked_at", System.currentTimeMillis()).apply();
-            if (code <= BuildConfig.VERSION_CODE || apk.isEmpty()) {
+            // A build Android refused (refused()) is not fetched again: the TV waits for the next one.
+            if (code <= BuildConfig.VERSION_CODE || apk.isEmpty() || code == prefs().getInt("refused_code", 0)) {
                 Runnable r = upToDate;
                 if (r != null) main.post(r);
                 return;
@@ -207,7 +207,8 @@ final class Updater {
                 // behind Home, Netflix as a rule, instead of the new Home: UpdateReceiver.Replaced starts it.
                 // commit(), not apply(): the process may be gone before an apply reaches the disk.
                 prefs().edit().putLong(INSTALLING_AT, System.currentTimeMillis()).commit();
-                Intent done = new Intent(ctx, UpdateReceiver.class).setAction(UpdateReceiver.ACTION);
+                Intent done = new Intent(ctx, UpdateReceiver.class).setAction(UpdateReceiver.ACTION)
+                        .putExtra(UpdateReceiver.EXTRA_SELF, true);
                 PendingIntent pi = PendingIntent.getBroadcast(ctx, id, done,
                         PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
                 session.commit(pi.getIntentSender());
@@ -216,6 +217,12 @@ final class Updater {
             Log.w(TAG, "install failed: " + e);
             android.widget.Toast.makeText(ctx, R.string.update_failed, android.widget.Toast.LENGTH_LONG).show();
         }
+    }
+
+    /** The download Android just refused goes; for good (never fetched again) unless the TV only lacked space. */
+    void refused(boolean forGood) {
+        if (forGood) prefs().edit().putInt("refused_code", prefs().getInt("ready_code", 0)).apply();
+        clearReady();
     }
 
     /** Forgets a download Android refused or that was installed, so the next check starts clean. */

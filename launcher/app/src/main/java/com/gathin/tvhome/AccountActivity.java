@@ -39,8 +39,8 @@ public final class AccountActivity extends Activity {
     private Typeface medium, regular, light;
     private LinearLayout list;
     private TextView hint;
-    /** Which of the missing apps OK on Install opens next: each press goes on to the next one. */
-    private int installAt;
+    /** The missing app OK on Install opened last: each press goes on to the next one. */
+    private String lastOffered;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -224,11 +224,14 @@ public final class AccountActivity extends Activity {
             list.addView(st, row());
         }
         if (!missing.isEmpty()) {
-            if (installAt >= missing.size()) installAt = 0;
-            Account.App next = missing.get(installAt);
+            // The one after the app last offered; an index skipped one once the offered app was installed and left
+            // the list.
+            int at = 0;
+            for (int i = 0; i < missing.size(); i++) if (missing.get(i).pkg.equals(lastOffered)) at = i + 1;
+            Account.App next = missing.get(at % missing.size());
             View install = button(getString(R.string.account_install, missing.size()), next.label);
             install.setOnClickListener(v -> {
-                installAt++;
+                lastOffered = next.pkg;
                 install(next);
             });
             list.addView(install, row());
