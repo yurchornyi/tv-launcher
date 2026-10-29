@@ -324,17 +324,18 @@ final class NowPlaying {
             Log.d("TvHome.Meta", c.getPackageName() + ": " + sb);
         }
         // The album's art, or the track's; never DISPLAY_ICON, which is the player's own logo (Spotify sends its
-        // logo there, and the real cover a moment later). Without a bitmap, a cover URL is fetched (CoverArt).
+        // logo there, and the real cover a moment later). A cover URL wins over the bitmap: Spotify's bitmap can
+        // still be an earlier song's while its URL already names the new one. The bitmap stands in until the URL's
+        // picture is fetched (CoverArt), and is all there is for a player that names no URL.
         Bitmap cover = m.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
         if (cover == null) cover = m.getBitmap(MediaMetadata.METADATA_KEY_ART);
-        if (cover == null) {
-            String uri = m.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI);
-            if (uri == null) uri = m.getString(MediaMetadata.METADATA_KEY_ART_URI);
-            if (uri == null) uri = m.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI);
-            if (uri != null && uri.startsWith("http")) {
-                cover = CoverArt.cached(uri);
-                if (cover == null) CoverArt.fetch(uri, () -> main.post(() -> { described.clear(); pick(); }));
-            }
+        String uri = m.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI);
+        if (uri == null) uri = m.getString(MediaMetadata.METADATA_KEY_ART_URI);
+        if (uri == null && cover == null) uri = m.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI);
+        if (uri != null && uri.startsWith("http")) {
+            Bitmap fetched = CoverArt.cached(uri);
+            if (fetched != null) cover = fetched;
+            else CoverArt.fetch(uri, () -> main.post(() -> { described.clear(); pick(); }));
         }
         long duration = m.getLong(MediaMetadata.METADATA_KEY_DURATION);
         // A video app with a title only (KIK, HDRezka): the film's poster and running time from TMDB.
