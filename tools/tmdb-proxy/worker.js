@@ -1,7 +1,7 @@
 import { asker, command, picks, HttpError } from './ai.js';
 import { featured as kickFeatured, play as kickPlay } from './kick.js';
 import { popular as kyivstarPopular, channel as kyivstarChannel } from './kyivstar.js';
-import { account, isAccountRoute } from './account.js';
+import { account, address, isAccountRoute } from './account.js';
 import { popular as spotifyPopular } from './spotify.js';
 
 export { Guard } from './guard.js';
@@ -54,7 +54,7 @@ async function ai(request, env, path) {
   if (!env.SENTRA_TOKEN || !env.SENTRA_URL) return json({ error: 'not configured' }, 503);
   // A ceiling per address first: who asks is the TV's own word, so made-up ids cannot get round the count below.
   if (env.AI_ADDRESS) {
-    const { success } = await env.AI_ADDRESS.limit({ key: request.headers.get('cf-connecting-ip') || 'unknown' });
+    const { success } = await env.AI_ADDRESS.limit({ key: address(request) });
     if (!success) return json({ error: 'slow down' }, 429);
   }
   let body;
@@ -114,7 +114,7 @@ export default {
     // Only requests that reach TMDB count: a TV's few a day pass easily, while someone using the public URL as a free
     // TMDB proxy runs into the limit long before the token could get flagged.
     if (env.TMDB_LIMIT) {
-      const { success } = await env.TMDB_LIMIT.limit({ key: request.headers.get('cf-connecting-ip') || 'unknown' });
+      const { success } = await env.TMDB_LIMIT.limit({ key: address(request) });
       if (!success) return new Response('Slow down', { status: 429 });
     }
 

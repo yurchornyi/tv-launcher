@@ -191,7 +191,7 @@ export function popular(request, ctx) {
  */
 export function channel(request, ctx, url) {
   const id = url.searchParams.get('id') || '';
-  const name = (url.searchParams.get('name') || '').trim();
+  const name = (url.searchParams.get('name') || '').trim().slice(0, 80);   // a channel's name, not a cache-buster
   if (!/^[0-9a-f]{24}$/.test(id)) return new Response('bad id', { status: 400 });
   const key = new URL('/kyivstar/channel', request.url);
   key.searchParams.set('id', id);

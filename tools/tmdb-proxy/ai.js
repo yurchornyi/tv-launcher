@@ -5,7 +5,7 @@
 // each feature apart (x-sentra-skill). Each answer is a JSON object checked against a fixed shape, so the TV never
 // parses prose. Each request also says who asks (asker): the TV's profile and its name go to Sentra for the owner to
 // read, the account and ids stay here, for the limit and for picks that do not repeat themselves.
-import { accountKey } from './account.js';
+import { accountKey, address } from './account.js';
 
 /** The schema as a check: true when `value` has the shape (types, enums, required keys) the TV relies on. */
 function fits(schema, value) {
@@ -145,7 +145,7 @@ export async function asker(request, env, body) {
   // «профіль » 8, the name 13, « · » 3, the TV 16: never over Sentra's 40.
   const profileName = name(profile.name, 13); const tv = name(device.name, 16);
   return {
-    key: key || 'ip:' + (request.headers.get('cf-connecting-ip') || 'unknown'),
+    key: key || 'ip:' + address(request),
     memory: key ? 'h:' + key : '',
     who: [profileName && 'профіль ' + profileName, tv].filter(Boolean).join(' · '),
   };

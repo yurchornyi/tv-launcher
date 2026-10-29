@@ -76,6 +76,20 @@ const MINUTE = 60 * 1000;
 const LOCK_TRIES = 10;
 const LOCK_MS = 15 * MINUTE;
 
+/**
+ * The address a per-address limit counts: IPv4 as it is, IPv6 by its /64, the block one subscriber gets. Counted by
+ * the full address, stepping through one's own /64 gave a new limit with every request.
+ */
+export function address(request) {
+  const ip = (request.headers.get('cf-connecting-ip') || 'unknown').toLowerCase();
+  if (!ip.includes(':') || ip.includes('.')) return ip;   // IPv4, or IPv4 written as IPv6 (::ffff:1.2.3.4)
+  const [head, tail] = ip.split('::');
+  const h = head ? head.split(':') : [];
+  const t = tail === undefined ? [] : tail ? tail.split(':') : [];
+  const groups = tail === undefined ? h : [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill('0'), ...t];
+  return groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, '')).join(':') + '::/64';
+}
+
 /** The exact counter for one key (guard.js); null where the binding is missing (local tests). */
 const guard = (env, key) => (env.GUARD ? env.GUARD.get(env.GUARD.idFromName(key)) : null);
 
@@ -120,7 +134,7 @@ async function signin(request, env) {
   if (!user) {
     // The owner's account is made only by make-admin.sh: signing in first must not make anyone the owner.
     if (isOwner(env, who)) throw new HttpError(403, 'wrong pin');
-    const made = guard(env, 'new:' + (request.headers.get('cf-connecting-ip') || 'unknown'));
+    const made = guard(env, 'new:' + address(request));
     if (made && !(await made.hit(5, 60 * MINUTE))) throw new HttpError(429, 'slow down');
     const salt = hex(crypto.getRandomValues(new Uint8Array(16)));
     await env.ACCOUNTS.put('u:' + who, JSON.stringify({ salt, hash: await pinHash(p, salt), created: Date.now() }));
@@ -224,6 +238,9 @@ async function adminDelete(request, env) {
   const apps = await keys(env, `a:${who}:`);
   await Promise.all([...theirs, ...index, ...apps, 'u:' + who, 's:' + who, 'f:' + who, 'b:' + who]
     .map((k) => env.ACCOUNTS.delete(k)));
+  // And its wrong-PIN count: an account made again under that e-mail starts unlocked.
+  const tries = guard(env, 'pin:' + who);
+  if (tries) await tries.clear();
   return json({ ok: true, signedOut: theirs.length });
 }
 
@@ -283,7 +300,7 @@ export function isAccountRoute(request, url) {
 export async function account(request, env, url) {
   if (!env.ACCOUNTS) return json({ error: 'not configured' }, 503);
   if (url.pathname === '/account/signin') {
-    const ip = guard(env, 'ip:' + (request.headers.get('cf-connecting-ip') || 'unknown'));
+    const ip = guard(env, 'ip:' + address(request));
     if (ip && !(await ip.hit(10, MINUTE))) return json({ error: 'slow down' }, 429);
   }
   try {

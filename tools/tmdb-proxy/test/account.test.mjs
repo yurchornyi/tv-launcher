@@ -2,7 +2,8 @@
 // hash, wrong PINs lock the e-mail, and the owner's e-mail cannot be claimed by signing in.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { account } from '../account.js';
+import { pbkdf2Sync, randomBytes } from 'node:crypto';
+import { account, address } from '../account.js';
 import { fakeKv, fakeGuard } from './fakes.mjs';
 
 const BASE = 'https://tv-launcher-tmdb.test';
@@ -125,4 +126,29 @@ test('the owner\'s e-mail cannot be claimed by signing in first', async () => {
   const r = await signin(e, 'Owner@Example.com', '1111');
   assert.equal(r.status, 403);
   assert.ok(!e.ACCOUNTS.data.has('u:owner@example.com'));
+});
+
+test('per-address limits count an IPv6 address by its /64', () => {
+  const at = (ip) => address(new Request(BASE, { headers: { 'cf-connecting-ip': ip } }));
+  assert.equal(at('203.0.113.5'), '203.0.113.5');
+  assert.equal(at('2001:db8:1:2:aaaa:bbbb:cccc:dddd'), at('2001:DB8:1:2::7'));
+  assert.notEqual(at('2001:db8:1:2::7'), at('2001:db8:1:3::7'));
+  assert.equal(at('::ffff:198.51.100.9'), '::ffff:198.51.100.9');
+});
+
+test('a deleted account made again under its e-mail starts unlocked', async () => {
+  const e = env({ ADMIN_EMAIL: 'owner@example.com' });
+  // The owner's account as make-admin.sh writes it.
+  const salt = randomBytes(16).toString('hex');
+  await e.ACCOUNTS.put('u:owner@example.com', JSON.stringify({
+    salt, hash: pbkdf2Sync('4321', salt, 100000, 32, 'sha256').toString('hex'), created: 1 }));
+  const owner = (await signin(e, 'owner@example.com', '4321', '192.0.2.1')).json.token;
+  await signin(e, 'b@example.com', '1111', '192.0.2.2');
+  for (let i = 0; i < 10; i++) await signin(e, 'b@example.com', '9999', `203.0.113.${i}`);
+  assert.equal((await signin(e, 'b@example.com', '1111', '192.0.2.3')).status, 429);
+  assert.equal((await call(e, 'POST', '/account/admin/delete', { token: owner, body: { email: 'b@example.com' } })).status, 200);
+  const again = await signin(e, 'b@example.com', '2222', '192.0.2.4');
+  assert.equal(again.status, 200);
+  assert.equal(again.json.created, true);
+  assert.equal((await signin(e, 'b@example.com', '2222', '192.0.2.5')).status, 200);
 });
