@@ -88,9 +88,10 @@ async function ask(env, { skill, role, system, user, schema, check = schema, max
   });
   if (response.status === 429) throw new HttpError(429, 'busy');
   if (!response.ok) throw new HttpError(502, 'ai error ' + response.status);
-  const data = await response.json();
-  const text = String(data.choices?.[0]?.message?.content ?? '').replace(/^```(?:json)?\s*|\s*```$/g, '');
   try {
+    // A 200 that is not JSON (a proxy's error page) is an unusable answer like any other, not a 500.
+    const data = await response.json();
+    const text = String(data.choices?.[0]?.message?.content ?? '').replace(/^```(?:json)?\s*|\s*```$/g, '');
     const out = filled(schema, objectIn(text));
     return fits(check, out) ? out : null;
   } catch {
@@ -108,6 +109,8 @@ class HttpError extends Error {
 const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
 const list = (v, max) => (Array.isArray(v) ? v.slice(0, max) : []);
 const obj = (v) => (typeof v === 'object' && v !== null && !Array.isArray(v) ? v : {});
+/** The objects of a list the TV sent; anything else in it (a null) is left out rather than failing the request. */
+const objects = (v, max) => list(v, max).filter((o) => typeof o === 'object' && o !== null);
 
 // ---- who asks ---------------------------------------------------------------------------------------------------
 
@@ -189,15 +192,15 @@ export async function command(env, body, asking = NOBODY) {
   if (!text) throw new HttpError(400, 'no text');
   // Kept short: every line is tokens on each spoken request. Channels are grouped under their app, so a package is
   // written once, not on every channel; the TV already leaves out the channels set to never show.
-  const apps = list(body.apps, 60).map((a) => `${str(a.pkg, 80)} | ${str(a.label, 40)}`).join('\n');
+  const apps = objects(body.apps, 60).map((a) => `${str(a.pkg, 80)} | ${str(a.label, 40)}`).join('\n');
   const byApp = new Map();
-  for (const c of list(body.channels, 150)) {
+  for (const c of objects(body.channels, 150)) {
     const app = str(c.app, 80);
     if (!byApp.has(app)) byApp.set(app, []);
     byApp.get(app).push(`${str(c.id, 40)} | ${str(c.name, 40)}`);
   }
   const channels = [...byApp].map(([app, lines]) => `[${app}]\n${lines.join('\n')}`).join('\n');
-  const titles = list(body.titles, 40)
+  const titles = objects(body.titles, 40)
     .map((t) => `${str(t.title, 80)} | ${str(t.app, 80)}${t.live ? ' | LIVE' : ''}`).join('\n');
   const lang = str(body.lang, 10).trim();
   const user = `Request: ${text}${lang ? `\nLanguage: ${lang}` : ''}\n\nApps:\n${apps}\n\nChannels (id | name, under [app]):\n${channels}\n\nHome-screen titles:\n${titles}`;
@@ -257,7 +260,8 @@ export async function picks(env, body, asking = NOBODY) {
   }
   const found = []; const kept = [];
   for (const p of list(fresh, 8)) {
-    const hit = await tmdbFind(env, str(p.title, 120), p.year, p.kind === 'tv' ? 'tv' : 'movie', lang);
+    // TMDB failing for one pick loses that pick, not the answer Sentra already gave.
+    const hit = await tmdbFind(env, str(p.title, 120), p.year, p.kind === 'tv' ? 'tv' : 'movie', lang).catch(() => null);
     if (!hit) continue;
     found.push({ ...hit, why: str(p.why, 160) });
     kept.push({ title: str(p.title, 120), year: p.year });

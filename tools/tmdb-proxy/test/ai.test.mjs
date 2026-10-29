@@ -113,3 +113,36 @@ test('a command tells the model the TV language when the TV sends it', async () 
   assert.ok(seen[0].body.messages[1].content.startsWith('Request: новини\nLanguage: uk-UA\n\nApps:'));
   assert.ok(!seen[1].body.messages[1].content.includes('Language:'));
 });
+
+test('picks: TMDB failing for one pick keeps the others', async () => {
+  globalThis.fetch = async (u) => {
+    const url = String(u);
+    if (url.startsWith('https://sentra.test')) {
+      return Response.json({ choices: [{ message: { content: JSON.stringify({ picks: [
+        { title: 'Broken', year: 2001, kind: 'movie', why: 'a' },
+        { title: 'Fine', year: 2002, kind: 'movie', why: 'b' },
+      ] }) } }] });
+    }
+    if (url.includes('query=Broken')) throw new TypeError('fetch failed');
+    return Response.json({ results: [{ id: 7, title: 'Добре', backdrop_path: '/b.jpg' }] });
+  };
+  const r = await post('/ai/picks', { request: 'щось смішне' });
+  assert.equal(r.status, 200);
+  assert.deepEqual((await r.json()).picks.map((p) => [p.id, p.why]), [[7, 'b']]);
+});
+
+test('a command leaves out a null in the lists the TV sent, not a 500', async () => {
+  const seen = [];
+  sentra({ action: 'open_app', app: 'a.b', channel_id: '', title: '', query: '', say: 'ok' }, seen);
+  const r = await post('/ai/command', { text: 'ютуб', apps: [null, { pkg: 'a.b', label: 'YouTube' }], channels: [null], titles: [7] });
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).action, 'open_app');
+  assert.ok(seen[0].body.messages[1].content.includes('a.b | YouTube'));
+});
+
+test('a Sentra answer that is not JSON gives the plain result, not a 500', async () => {
+  globalThis.fetch = async () => new Response('<html>oops</html>', { status: 200 });
+  const r = await post('/ai/command', { text: 'новини' });
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).action, 'search');
+});

@@ -37,9 +37,6 @@ export function fakeGuard() {
         counts.set(name, n + 1);
         return true;
       },
-      async reached(limit) {
-        return (counts.get(name) || 0) >= limit;
-      },
       async clear() {
         counts.delete(name);
       },

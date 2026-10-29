@@ -118,27 +118,35 @@ function item(asset, title) {
   return { title: name, backdrop, open: open(asset) };
 }
 
+/** The hour in Kyiv (0-23) at `ms`, summer time or not. */
+const KYIV_HOUR = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Kyiv', hour: 'numeric', hourCycle: 'h23' });
+const kyivHour = (ms) => Number(KYIV_HOUR.format(new Date(ms)));
+
 function json(o, maxAge) {
   const headers = { 'Content-Type': 'application/json; charset=utf-8' };
   headers['Cache-Control'] = maxAge ? 'public, max-age=' + maxAge : 'no-store';
   return new Response(JSON.stringify(o), { status: 200, headers });
 }
 
-/** `build` gives { items }; only a list with something in it is cached. An empty one is logged when `needed`. */
-async function cached(request, ctx, build, needed = true) {
-  const key = new Request(new URL(request.url).toString(), { method: 'GET' });
+/**
+ * `build` gives { items }; only a list with something in it is cached, under `url` (the path and only the parameters
+ * read, so a made-up one cannot skip the cache and send each request on to Kyivstar). An empty one is logged when
+ * `needed`.
+ */
+async function cached(url, ctx, build, needed = true) {
+  const key = new Request(url.toString(), { method: 'GET' });
   const hit = await caches.default.match(key);
   if (hit) return hit;
   let body;
   try {
     body = await build();
   } catch (e) {
-    console.error('kyivstar shelf empty', new URL(request.url).pathname, String(e));
+    console.error('kyivstar shelf empty', url.pathname, String(e));
     return json({ items: [] }, 0);
   }
   const items = body && Array.isArray(body.items) ? body.items : [];
   if (!items.length) {
-    if (needed) console.error('kyivstar shelf empty', new URL(request.url).pathname, 'nothing usable');
+    if (needed) console.error('kyivstar shelf empty', url.pathname, 'nothing usable');
     return json({ items: [] }, 0);
   }
   const response = json({ items }, TTL);
@@ -151,7 +159,7 @@ async function cached(request, ctx, build, needed = true) {
  * short of thirty, what is new on Kyivstar TV and its Ukrainian series and films, interleaved the same way.
  */
 export function popular(request, ctx) {
-  return cached(request, ctx, async () => {
+  return cached(new URL('/kyivstar/popular', request.url), ctx, async () => {
     const ids = await groupIds();
     const lists = await groups(ids, [TOP_WEEK, POPULAR_FILMS, POPULAR_SERIES]);
     const items = [];
@@ -185,7 +193,10 @@ export function channel(request, ctx, url) {
   const id = url.searchParams.get('id') || '';
   const name = (url.searchParams.get('name') || '').trim();
   if (!/^[0-9a-f]{24}$/.test(id)) return new Response('bad id', { status: 400 });
-  return cached(request, ctx, async () => {
+  const key = new URL('/kyivstar/channel', request.url);
+  key.searchParams.set('id', id);
+  key.searchParams.set('name', name);
+  return cached(key, ctx, async () => {
     const items = [];
     const names = new Set();
     const add = (asset, title) => {
@@ -218,7 +229,7 @@ export function channel(request, ctx, url) {
         if (p.finish < now) continue;
         const show = showName(p.title);
         if (!show || show.length < 3 || /новини|news|телепродаж|реклама|марафон/i.test(show)) continue;
-        const hour = (new Date(p.start).getUTCHours() + 3) % 24;
+        const hour = kyivHour(p.start);
         weight.set(show, (weight.get(show) || 0) + (hour >= 18 && hour < 23 ? 3 : 1));
       }
     }

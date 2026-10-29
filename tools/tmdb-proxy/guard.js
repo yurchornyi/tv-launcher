@@ -24,11 +24,6 @@ export class Guard extends DurableObject {
     return true;
   }
 
-  /** Whether `limit` were counted in this window, counting nothing. */
-  async reached(limit, windowMs) {
-    return (await this.window(windowMs)).n >= limit;
-  }
-
   async clear() {
     await this.ctx.storage.deleteAll();
   }

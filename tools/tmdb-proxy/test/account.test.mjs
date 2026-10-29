@@ -101,6 +101,19 @@ test('ten wrong PINs lock the e-mail, even for the right PIN', async () => {
   assert.equal(r.json.error, 'locked');
 });
 
+test('wrong PINs sent all at once still lock the e-mail after ten', async () => {
+  const e = env();
+  await signin(e, 'a@example.com', '1111');
+  const all = await Promise.all(Array.from({ length: 30 }, (_, i) => signin(e, 'a@example.com', '9999', `203.0.113.${i}`)));
+  assert.equal(all.filter((r) => r.status === 403).length, 10);
+  assert.equal(all.filter((r) => r.status === 429).length, 20);
+});
+
+test('an e-mail with a colon is refused: it would sit under another account\'s keys', async () => {
+  const r = await signin(env(), 'a@b.co:x.y', '1111');
+  assert.equal(r.status, 400);
+});
+
 test('one address gets ten sign-in tries a minute', async () => {
   const e = env();
   for (let i = 0; i < 10; i++) await signin(e, `u${i}@example.com`, '1111', '192.0.2.7');

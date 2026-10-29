@@ -39,7 +39,8 @@ async function cover(id) {
 }
 
 export async function popular(request, ctx) {
-  const key = new Request(new URL(request.url).toString(), { method: 'GET' });
+  // The path alone: a made-up parameter must not skip the cache and send each request on to the charts.
+  const key = new Request(new URL('/spotify/popular', request.url).toString(), { method: 'GET' });
   const hit = await caches.default.match(key);
   if (hit) return hit;
   const picked = [];

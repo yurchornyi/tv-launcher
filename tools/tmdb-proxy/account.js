@@ -51,7 +51,8 @@ function same(a, b) {
 
 function email(v) {
   const e = typeof v === 'string' ? v.trim().toLowerCase() : '';
-  if (e.length > 120 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) throw new HttpError(400, 'bad email');
+  // No ':' either: it ends the e-mail in the keys (x:<email>:<hash>), so "a@b.co:x.y" would sit under a@b.co's prefix.
+  if (e.length > 120 || !/^[^\s@:]+@[^\s@:]+\.[^\s@:]+$/.test(e)) throw new HttpError(400, 'bad email');
   return e;
 }
 
@@ -125,12 +126,11 @@ async function signin(request, env) {
     await env.ACCOUNTS.put('u:' + who, JSON.stringify({ salt, hash: await pinHash(p, salt), created: Date.now() }));
     return json({ token: await newToken(env, who), created: true, email: who, admin: isOwner(env, who) });
   }
+  // Each try is counted before the PIN is checked: counted after, guesses sent at once all passed the lock while
+  // the PIN hashed. A right PIN clears the count.
   const tries = guard(env, 'pin:' + who);
-  if (tries && (await tries.reached(LOCK_TRIES, LOCK_MS))) throw new HttpError(429, 'locked');
-  if (!same(await pinHash(p, user.salt), user.hash)) {
-    if (tries) await tries.hit(LOCK_TRIES, LOCK_MS);
-    throw new HttpError(403, 'wrong pin');
-  }
+  if (tries && !(await tries.hit(LOCK_TRIES, LOCK_MS))) throw new HttpError(429, 'locked');
+  if (!same(await pinHash(p, user.salt), user.hash)) throw new HttpError(403, 'wrong pin');
   if (tries) await tries.clear();
   const state = await env.ACCOUNTS.get('s:' + who, 'json');
   return json({ token: await newToken(env, who), created: false, email: who, updated: state ? state.updated : 0,
