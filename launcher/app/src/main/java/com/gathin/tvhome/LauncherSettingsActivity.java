@@ -145,6 +145,10 @@ public final class LauncherSettingsActivity extends Activity {
             updateState = getString(R.string.up_to_date);
             refresh();
         });
+        updater.onFailed(() -> {
+            updateState = getString(R.string.update_check_failed);
+            refresh();
+        });
         if (updater.readyVersion() != null) updateState = getString(R.string.update_to, updater.readyVersion());
         setContentView(build());
         refresh();
@@ -164,6 +168,7 @@ public final class LauncherSettingsActivity extends Activity {
     protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
         updater.onUpToDate(null);
+        updater.onFailed(null);
         if (turn != null) turn.cancel();
         super.onDestroy();
     }

@@ -35,7 +35,9 @@ public class UpdateReceiver extends BroadcastReceiver {
                 new Updater(context, null, null).refused(status != PackageInstaller.STATUS_FAILURE_STORAGE);
             }
             String why = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE);
-            Toast.makeText(context, context.getString(R.string.update_failed) + (why != null ? "\n" + why : ""),
+            // KIK's install (AppInstaller) ends here too: it is no launcher update.
+            int text = intent.getBooleanExtra(EXTRA_SELF, false) ? R.string.update_failed : R.string.install_failed;
+            Toast.makeText(context, context.getString(text) + (why != null ? "\n" + why : ""),
                     Toast.LENGTH_LONG).show();
         }
     }

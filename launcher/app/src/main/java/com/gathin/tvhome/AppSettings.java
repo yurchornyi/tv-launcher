@@ -77,6 +77,8 @@ final class AppSettings {
      * Account.push: SmartTube's backup folder zipped, encrypted, sent, when it changed since it was last sent. Runs on
      * the account's network thread. Nothing when SmartTube is not here, its folder cannot be read, or there is no key.
      */
+    private static final long REFUSED_WAIT_MS = 30 * 60 * 1000L;
+
     static void push(Context ctx, byte[] key, Account.Sender send) throws Exception {
         String pkg = smartTube(ctx);
         if (pkg == null || key == null || !canRead()) return;
@@ -86,11 +88,22 @@ final class AppSettings {
         signature(data, "", sig);
         String hash = Integer.toHexString(sig.toString().hashCode());
         if (hash.equals(prefs(ctx).getString("sent", ""))) return;
+        // Refused before: this very folder as too large (413), or anything for a while (429, a server error). Else
+        // the whole folder was zipped, encrypted and sent again on every Home refresh, once a minute on a 1 GB TV.
+        if (hash.equals(prefs(ctx).getString("too_large", ""))
+                || ShelfFeed.fresh(prefs(ctx).getLong("refused_at", 0), REFUSED_WAIT_MS)) return;
         ByteArrayOutputStream zipped = new ByteArrayOutputStream();
         try (ZipOutputStream zip = new ZipOutputStream(zipped)) {
             add(zip, data, "data/");
         }
-        long updated = send.send(SMARTTUBE, encrypt(key, zipped.toByteArray()));
+        long updated;
+        try {
+            updated = send.send(SMARTTUBE, encrypt(key, zipped.toByteArray()));
+        } catch (Account.HttpError e) {
+            if ("HTTP 413".equals(e.message)) prefs(ctx).edit().putString("too_large", hash).apply();
+            else prefs(ctx).edit().putLong("refused_at", System.currentTimeMillis()).apply();
+            throw e;
+        }
         // What this TV sent is what it has: it is never offered back to it as another TV's.
         prefs(ctx).edit().putString("sent", hash).putLong("restored", updated).apply();
         Log.i(TAG, "SmartTube settings sent, " + zipped.size() + " bytes");

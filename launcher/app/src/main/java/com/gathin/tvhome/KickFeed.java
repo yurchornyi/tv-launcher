@@ -54,7 +54,7 @@ final class KickFeed {
     void items(ShelfFeed.ItemsListener listener) {
         if (!enabled()) return;
         if (!known.isEmpty()) listener.onItems(known);
-        if (System.currentTimeMillis() - readAt < MAX_AGE_MS) return;
+        if (ShelfFeed.fresh(readAt, MAX_AGE_MS)) return;   // a clock set back since is not fresh
         if (!waiters.contains(listener)) waiters.add(listener);
         if (loading) return;
         loading = true;

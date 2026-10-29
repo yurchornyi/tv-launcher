@@ -93,6 +93,7 @@
     <string name="update_now">Оновити</string>
     <string name="update_later">Пізніше</string>
     <string name="update_failed">Не вдалося встановити оновлення</string>
+    <string name="install_failed">Не вдалося встановити застосунок</string>
     <!-- Tile menu: an app's shelf shows its live channels or posters; the picker for the channels. -->
     <string name="shelf_mode_channels">Полиця: канали</string>
     <string name="shelf_mode_posters">Полиця: постери</string>
@@ -197,6 +198,7 @@
     <string name="version_hint">Оновлення встановлюються самі протягом години. OK перевіряє зараз.</string>
     <string name="checking">Перевіряю</string>
     <string name="up_to_date">Остання версія</string>
+    <string name="update_check_failed">Не вдалося перевірити</string>
     <string name="sleep_warning">Телевізор засне через %s</string>
     <string name="sleep_warning_hint">Дивитеся далі? Продовжте таймер.</string>
     <string name="sleep_extend">+%d хв</string>

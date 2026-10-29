@@ -60,7 +60,7 @@ final class ChannelFeed {
         if (!enabled()) return;
         Long at = readAt.get(pkg);
         List<ShelfFeed.Item> known = lists.get(pkg);
-        if (known != null && at != null && System.currentTimeMillis() - at < MAX_AGE_MS) {
+        if (known != null && at != null && ShelfFeed.fresh(at, MAX_AGE_MS)) {   // a clock set back since is not fresh
             listener.onItems(known);
             return;
         }

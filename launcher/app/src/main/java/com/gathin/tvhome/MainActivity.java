@@ -1596,6 +1596,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         npCoverShown = null;
         npBackdrop = null;
         if (shelfFeed != null) shelfFeed.trimMemory();
+        CoverArt.trim();
     }
 
     @Override
@@ -3125,6 +3126,24 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         return null;
     }
 
+    /**
+     * When OK started looking up a Kick link or a Netflix id (uptime), 0 when none is under way. A second OK meanwhile
+     * opened the player twice; held for 15 s at most, so a lookup that never answers cannot block OK for good.
+     */
+    private long lookupAt;
+
+    private boolean startLookup() {
+        if (lookupAt != 0 && SystemClock.uptimeMillis() - lookupAt < 15_000) return false;
+        lookupAt = SystemClock.uptimeMillis();
+        return true;
+    }
+
+    /** The lookup answered: true when its app may still open (Home is in front: the owner has not gone elsewhere). */
+    private boolean endLookup() {
+        lookupAt = 0;
+        return homeInFront && !isFinishing();
+    }
+
     private void openItem(String pkg, ShelfFeed.Item item) {
         recents.item(pkg, item);
         if (item.open != null && item.open.startsWith("kick:")) {
@@ -3136,9 +3155,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             return;
         }
         if ("com.netflix.ninja".equals(pkg) && item.id > 0 && shelfFeed.enabled()) {
+            if (!startLookup()) return;
             shelfOpen.setAlpha(0.5f);
             shelfFeed.netflixId(item.type, item.id, id -> {
                 shelfOpen.setAlpha(1f);
+                if (!endLookup()) return;
                 if (id.isEmpty()) launchApp(pkg);
                 else open(new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.netflix.com/title/" + id)).setPackage(pkg));
             });
@@ -3166,9 +3187,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
      * TV (Just Player, ViMu, VLC, MX), with a fresh link; without one, or when it went offline, Kick opens.
      */
     private void playKick(String slug) {
+        if (!startLookup()) return;
         shelfOpen.setAlpha(0.5f);
         kickFeed.play(slug, url -> {
             shelfOpen.setAlpha(1f);
+            if (!endLookup()) return;
             if (url == null) {
                 launchApp(KickFeed.PACKAGE);
                 return;
@@ -3552,6 +3575,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     private List<String> missingPermissions() {
         android.content.SharedPreferences st = getSharedPreferences("setup", MODE_PRIVATE);
+        List<String> missing = new ArrayList<>();
+        for (String p : neededPermissions()) {
+            if (checkSelfPermission(p) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                    && !st.getBoolean("asked_" + p, false)) missing.add(p);
+        }
+        return missing;
+    }
+
+    /** The setup permissions this TV has a use for: listings with a channel app, location with weather or Wi-Fi. */
+    private List<String> neededPermissions() {
         List<String> out = new ArrayList<>();
         boolean channels = false;
         for (String pkg : channelApps) if (installed(pkg)) channels = true;
@@ -3561,12 +3594,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             out.add(android.Manifest.permission.ACCESS_COARSE_LOCATION);
         }
         if (Build.VERSION.SDK_INT >= 31) out.add("android.permission.BLUETOOTH_CONNECT");
-        List<String> missing = new ArrayList<>();
-        for (String p : out) {
-            if (checkSelfPermission(p) != android.content.pm.PackageManager.PERMISSION_GRANTED
-                    && !st.getBoolean("asked_" + p, false)) missing.add(p);
-        }
-        return missing;
+        return out;
     }
 
     private Intent appDetails() {
@@ -3579,9 +3607,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         return on != null && on.contains(getPackageName());
     }
 
-    /** Any of the setup permissions still not granted, asked or not. */
+    /**
+     * Any of the setup permissions this TV needs still not granted, asked or not: the same ones missingPermissions
+     * asks for, so on a TV without a channel app or weather the Settings menu's row goes once the rest are allowed.
+     */
     private boolean anyPermissionMissing() {
-        for (String p : new String[]{"android.permission.READ_TV_LISTINGS", android.Manifest.permission.ACCESS_FINE_LOCATION}) {
+        for (String p : neededPermissions()) {
             if (checkSelfPermission(p) != android.content.pm.PackageManager.PERMISSION_GRANTED) return true;
         }
         return false;
@@ -3786,7 +3817,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private void showPicks(String request) {
         int gen = ++aiGen;
         showSearchNote(getString(R.string.ai_picking));
-        shelfChannels.removeAllViews();
+        // The search results stay until picks come: with none (offline, nothing found) the row was left empty.
         ai.picks(request, a -> {
             if (gen != aiGen || !searching) return;
             org.json.JSONArray picks = a == null ? null : a.optJSONArray("picks");

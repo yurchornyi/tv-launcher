@@ -50,6 +50,8 @@ final class Updater {
     private static final java.util.concurrent.atomic.AtomicBoolean BUSY = new java.util.concurrent.atomic.AtomicBoolean();
     /** Told on the main thread when a check finds nothing newer (Launcher settings shows "Up to date"). */
     private volatile Runnable upToDate;
+    /** Told on the main thread when a check could not finish (offline, a download that failed). */
+    private volatile Runnable failed;
     /** When a check last failed (no network, say): the routine hourly look waits a while instead of trying on every
      *  return to Home; a look asked for at once (the screen coming on, the Settings menu) still goes ahead. */
     private static volatile long failedAt;
@@ -57,6 +59,10 @@ final class Updater {
 
     void onUpToDate(Runnable r) {
         upToDate = r;
+    }
+
+    void onFailed(Runnable r) {
+        failed = r;
     }
 
     Updater(Context ctx, String url, Listener listener) {
@@ -88,14 +94,21 @@ final class Updater {
 
     /** now: the launcher starting, the screen coming on or the Settings menu ask at once (at most every few minutes). */
     void check(boolean now) {
-        if (!enabled() || BUSY.get()) return;
+        if (!enabled()) return;
+        if (BUSY.get()) {
+            // Another screen's check is running (they share the files): look again once it is done, so whoever
+            // asked now hears the answer; Launcher settings stayed on "Checking" for good.
+            if (now) main.postDelayed(() -> check(true), 3000);
+            return;
+        }
         if (readyVersion() != null) {
             listener.onUpdateReady(readyVersion());
             return;
         }
         if (ShelfFeed.fresh(prefs().getLong("checked_at", 0), now ? 3 * 60 * 1000L : CHECK_MS)) {
-            Runnable r = upToDate;
-            if (now && r != null) main.post(r);   // looked a moment ago and found nothing
+            // Looked a moment ago: found nothing newer, or found one whose download failed (not "up to date").
+            Runnable r = prefs().getBoolean("current", false) ? upToDate : failed;
+            if (now && r != null) main.post(r);
             return;
         }
         if (!now && SystemClock.elapsedRealtime() - failedAt < RETRY_MS) return;
@@ -117,9 +130,10 @@ final class Updater {
             int code = info.optInt("versionCode", 0);
             String name = info.optString("versionName", String.valueOf(code));
             String apk = info.optString("apk", "");
-            prefs().edit().putLong("checked_at", System.currentTimeMillis()).apply();
+            prefs().edit().putLong("checked_at", System.currentTimeMillis()).putBoolean("current", false).apply();
             // A build Android refused (refused()) is not fetched again: the TV waits for the next one.
             if (code <= BuildConfig.VERSION_CODE || apk.isEmpty() || code == prefs().getInt("refused_code", 0)) {
+                prefs().edit().putBoolean("current", true).apply();
                 Runnable r = upToDate;
                 if (r != null) main.post(r);
                 return;
@@ -135,6 +149,8 @@ final class Updater {
         } catch (Exception e) {
             Log.w(TAG, "update check failed: " + e);
             failedAt = SystemClock.elapsedRealtime();
+            Runnable r = failed;
+            if (r != null) main.post(r);
         } finally {
             BUSY.set(false);
         }

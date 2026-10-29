@@ -76,6 +76,7 @@ final class AppInstaller {
                             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
                     session.commit(pi.getIntentSender());
                 }
+                apk.delete();   // the session holds its own copy now
                 started = true;
             } catch (Exception e) {
                 Log.w(TAG, "install failed: " + e);
@@ -96,8 +97,13 @@ final class AppInstaller {
                 if (out.size() > max) throw new IllegalStateException("too large");
             }
             return out.toByteArray();
+        } finally {
+            c.disconnect();
         }
     }
+
+    /** At most this much: a release that grows past it is not an app for a 1 GB TV's cache, and fills no disk. */
+    private static final long MAX_APK = 256L * 1024 * 1024;
 
     private static void download(String url, File to) throws Exception {
         HttpURLConnection c = open(url);
@@ -105,7 +111,17 @@ final class AppInstaller {
         try (InputStream in = c.getInputStream(); OutputStream out = new FileOutputStream(tmp)) {
             byte[] buf = new byte[65536];
             int n;
-            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            long total = 0;
+            while ((n = in.read(buf)) > 0) {
+                out.write(buf, 0, n);
+                total += n;
+                if (total > MAX_APK) throw new IllegalStateException("too large");
+            }
+        } catch (Exception e) {
+            tmp.delete();
+            throw e;
+        } finally {
+            c.disconnect();
         }
         if (!tmp.renameTo(to)) throw new IllegalStateException("rename failed");
     }

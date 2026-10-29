@@ -157,6 +157,7 @@ final class NowPlaying {
         if (msm != null) msm.removeOnActiveSessionsChangedListener(sessions);
         for (MediaController c : watched) c.unregisterCallback(callback);
         watched.clear();
+        described.clear();   // their covers too: read afresh when Home is back
         msm = null;
     }
 

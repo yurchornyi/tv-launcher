@@ -12,12 +12,17 @@ import java.util.Set;
 
 /**
  * Covers a player names by URL rather than sending as a bitmap (NowPlaying): fetched once, kept in memory for the
- * last few tracks. A URL that failed is not tried again until the launcher restarts.
+ * last few tracks, 12 MB at most (six counted by number were up to 22 MB of 1280 px frames on a 1 GB TV), and let go
+ * when Home is left (trim). A URL that failed is not tried again until the launcher restarts.
  */
 final class CoverArt {
 
     private static final String TAG = "TvHome.CoverArt";
-    private static final LruCache<String, Bitmap> cache = new LruCache<>(6);
+    private static final LruCache<String, Bitmap> cache = new LruCache<String, Bitmap>(12 * 1024 * 1024) {
+        @Override protected int sizeOf(String url, Bitmap b) {
+            return b.getAllocationByteCount();
+        }
+    };
     private static final Set<String> loading = new HashSet<>();
     private static final Set<String> failed = new HashSet<>();
 
@@ -25,6 +30,11 @@ final class CoverArt {
 
     static synchronized Bitmap cached(String url) {
         return cache.get(url);
+    }
+
+    /** Home went to the background (MainActivity.onStop): the covers go, what is on the card keeps its own. */
+    static synchronized void trim() {
+        cache.evictAll();
     }
 
     /** Downloads the picture on a worker thread; `done` is called (on that thread) once it is cached. */
