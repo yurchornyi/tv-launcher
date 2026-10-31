@@ -1,0 +1,50 @@
+name: Merge when green
+
+# Owner, 31.10: a PR goes in by itself once its checks pass, in all his projects. A private repository
+# on GitHub Free has neither branch protection nor auto-merge, so .github/scripts/merge-when-green.mjs
+# does it, at the commit the checks saw. Left alone: a draft, a bot's PR, a migration, a PR older than
+# the script. Repository variable AUTO_MERGE=false switches it off.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  check_run:
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+  checks: read
+
+jobs:
+  merge:
+    name: Merge green pull requests
+    if: >-
+      vars.AUTO_MERGE != 'false' && (
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'workflow_run' &&
+         github.event.workflow_run.event == 'pull_request' &&
+         github.event.workflow_run.conclusion == 'success') ||
+        (github.event_name == 'check_run' &&
+         github.event.check_run.app.slug == 'cloudflare-workers-and-pages' &&
+         github.event.check_run.conclusion == 'success'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # In the job, not the workflow: a skipped run does not join the group.
+    concurrency:
+      group: merge-when-green
+      cancel-in-progress: false
+    steps:
+      # main's copy and no checkout: seconds, and it leaves the runner's workspace alone.
+      - name: Merge every green pull request
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_WORKFLOW: release.yml
+          RELEASE_PATHS: '^(?:launcher/(?:app/|build\.gradle$|settings\.gradle$|gradle\.properties$|gradle/)|backups/xgimi\.json$|tools/make-defaults\.py$)'
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/contents/.github/scripts/merge-when-green.mjs?ref=main" \
+            -H 'Accept: application/vnd.github.raw' > "$RUNNER_TEMP/merge-when-green.mjs"
+          node "$RUNNER_TEMP/merge-when-green.mjs"
