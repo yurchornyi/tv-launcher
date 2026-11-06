@@ -146,3 +146,31 @@ test('a Sentra answer that is not JSON gives the plain result, not a 500', async
   assert.equal(r.status, 200);
   assert.equal((await r.json()).action, 'search');
 });
+
+test('picks: a TMDB that never answers loses its pick, not the answer Sentra gave', async () => {
+  // TMDB's 8 s limit, run out at once here (as AbortSignal.timeout's timer would); Sentra's own limit stays.
+  const realTimeout = AbortSignal.timeout;
+  AbortSignal.timeout = (ms) => (ms === 8000
+    ? AbortSignal.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))
+    : realTimeout.call(AbortSignal, ms));
+  let tmdbSignal;
+  globalThis.fetch = async (u, init = {}) => {
+    const url = String(u);
+    if (url.startsWith('https://sentra.test')) {
+      return Response.json({ choices: [{ message: { content: JSON.stringify({ picks: [
+        { title: 'Hung', year: 2001, kind: 'movie', why: 'a' },
+      ] }) } }] });
+    }
+    tmdbSignal = init.signal;
+    if (init.signal && init.signal.aborted) throw init.signal.reason;
+    return new Promise(() => {});   // without a limit TMDB would hold the TV for good
+  };
+  try {
+    const r = await post('/ai/picks', { request: 'щось смішне' });
+    assert.equal(r.status, 200);
+    assert.deepEqual((await r.json()).picks, []);
+    assert.ok(tmdbSignal instanceof AbortSignal);
+  } finally {
+    AbortSignal.timeout = realTimeout;
+  }
+});

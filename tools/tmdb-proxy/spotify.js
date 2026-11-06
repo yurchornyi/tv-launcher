@@ -4,6 +4,8 @@
 // artist stays only with a letter Russian lacks (і, ї, є, ґ). The global chart tops the list up. Cached six hours.
 // When the charts are down or change their page, the shelf comes back empty and console.error tells Sentra.
 
+import { UPSTREAM_MS, gatewayTimeout } from './upstream.js';
+
 const UA = { 'User-Agent': 'Mozilla/5.0 (Linux; Android 12; TV) tv-launcher' };
 const TTL = 6 * 60 * 60;
 const CHARTS = ['https://kworb.net/spotify/country/ua_daily.html', 'https://kworb.net/spotify/country/global_daily.html'];
@@ -31,8 +33,8 @@ function rows(html) {
 }
 
 /** The album cover at 640 px (oEmbed gives the 300 px one; Spotify's image ids differ only in the size part). */
-async function cover(id) {
-  const r = await fetch(`https://open.spotify.com/oembed?url=https://open.spotify.com/track/${id}`, { headers: UA });
+async function cover(id, signal) {
+  const r = await fetch(`https://open.spotify.com/oembed?url=https://open.spotify.com/track/${id}`, { headers: UA, signal });
   if (!r.ok) return '';
   const d = await r.json();
   return String(d.thumbnail_url || '').replace('ab67616d00001e02', 'ab67616d0000b273');
@@ -43,12 +45,15 @@ export async function popular(request, ctx) {
   const key = new Request(new URL('/spotify/popular', request.url).toString(), { method: 'GET' });
   const hit = await caches.default.match(key);
   if (hit) return hit;
+  // One time budget for the whole shelf (both charts and every cover), so the TV hears before it gives up. A shelf
+  // that ran out is a 504, never a short list cached for hours.
+  const signal = AbortSignal.timeout(UPSTREAM_MS);
   const picked = [];
   const seen = new Set();
   for (const chart of CHARTS) {
     if (picked.length >= MAX) break;
     try {
-      const r = await fetch(chart, { headers: UA });
+      const r = await fetch(chart, { headers: UA, signal });
       if (!r.ok) throw new Error('status ' + r.status);
       const found = rows(await r.text());
       if (!found.length) throw new Error('no rows: the page changed');
@@ -62,7 +67,8 @@ export async function popular(request, ctx) {
       console.error('spotify chart', chart, String(e));
     }
   }
-  const covers = await Promise.all(picked.map((p) => cover(p.id).catch(() => '')));
+  const covers = signal.aborted ? [] : await Promise.all(picked.map((p) => cover(p.id, signal).catch(() => '')));
+  if (signal.aborted) return gatewayTimeout('spotify shelf', { items: [] });
   const items = picked.map((p, i) => ({
     title: `${p.title} · ${p.artist}`,
     backdrop: covers[i],
