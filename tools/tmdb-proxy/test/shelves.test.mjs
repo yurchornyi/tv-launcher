@@ -1,5 +1,6 @@
 // The shelves (worker.js TMDB, kick.js, kyivstar.js, spotify.js): when the service behind one is down or answers in a
-// shape the Worker no longer reads, the TV gets an empty shelf with 200, never a 500, and console.error says why.
+// shape the Worker no longer reads, the TV gets an empty shelf with 200, never a 500, and console.error says why. A
+// service that never answers gets 8 s; then the TV hears 504 (with the same empty shape) before its own 12 s run out.
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../worker.js';
@@ -51,6 +52,46 @@ for (const [failure, fake] of Object.entries(FAILURES)) {
       assert.ok(errors.length > 0, 'no console.error');
     });
   }
+}
+
+/** A service that takes the request and never answers: only the request's signal ends it. */
+const hang = async (u, init = {}) => new Promise((_, reject) => {
+  if (!init.signal) return;   // no time limit: hangs for good, and the test times out
+  if (init.signal.aborted) return reject(init.signal.reason);
+  init.signal.addEventListener('abort', () => reject(init.signal.reason));
+});
+
+/** AbortSignal.timeout after `ms`, on a timer that keeps Node's event loop alive (the real one does not). */
+function soon(ms) {
+  const c = new AbortController();
+  setTimeout(() => c.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError')), ms);
+  return c.signal;
+}
+
+const HUNG = [...SHELVES, ['/kick/play?slug=xqc', (j) => assert.deepEqual(j, {})],
+  ['/kyivstar/channel?id=' + 'a'.repeat(24) + '&name=1%2B1', (j) => assert.deepEqual(j.items, [])]];
+
+for (const [path, empty] of HUNG) {
+  test(`${path}: a service that never answers gives 504 before the TV gives up`, async () => {
+    // The Worker's 8 s, shortened here so the test does not wait for it.
+    const realTimeout = AbortSignal.timeout;
+    const limits = [];
+    AbortSignal.timeout = (ms) => { limits.push(ms); return soon(30); };
+    globalThis.fetch = hang;
+    try {
+      const r = await worker.fetch(new Request(BASE + path), { TMDB_KEY: 'k'.repeat(32) }, ctx);
+      assert.equal(r.status, 504);
+      assert.equal(r.headers.get('Cache-Control'), 'no-store');
+      const body = await r.json();
+      assert.equal(body.error, 'upstream timeout');
+      const { error, ...shape } = body;
+      empty(shape);
+      assert.ok(limits.length > 0 && limits.every((ms) => ms === 8000), 'limits ' + limits);
+      assert.ok(errors.some((e) => e.includes('timed out')), 'no console.error');
+    } finally {
+      AbortSignal.timeout = realTimeout;
+    }
+  });
 }
 
 test('a title search passes the query on to TMDB', async () => {

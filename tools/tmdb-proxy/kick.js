@@ -3,17 +3,21 @@
 // particular channel, so the TV plays the link in a video player. Lists are cached a couple of minutes. When Kick is
 // down or changes its answer, the shelf comes back empty (the TV keeps what it has) and console.error tells Sentra.
 
+import { UPSTREAM_MS, gatewayTimeout, timedOut } from './upstream.js';
+
 const UA = { 'User-Agent': 'Mozilla/5.0 (Linux; Android 12; TV) tv-launcher', Accept: 'application/json' };
 
 export async function featured(url, ctx) {
   const lang = /^[a-z]{2}$/.test(url.searchParams.get('lang') || '') ? url.searchParams.get('lang') : 'en';
   let d;
   try {
-    const r = await fetch(`https://kick.com/stream/featured-livestreams/${lang}`, { headers: UA, cf: { cacheTtl: 120 } });
+    const r = await fetch(`https://kick.com/stream/featured-livestreams/${lang}`,
+      { headers: UA, cf: { cacheTtl: 120 }, signal: AbortSignal.timeout(UPSTREAM_MS) });
     if (!r.ok) throw new Error('status ' + r.status);
     d = await r.json();
     if (!d || !Array.isArray(d.data)) throw new Error('unexpected shape');
   } catch (e) {
+    if (timedOut(e)) return gatewayTimeout('kick featured', { items: [] });
     console.error('kick shelf empty', String(e));
     return json({ items: [] });
   }
@@ -34,11 +38,12 @@ export async function play(url) {
   if (!/^[A-Za-z0-9_-]{1,40}$/.test(slug)) return json({ error: 'bad slug' }, 400);
   let c;
   try {
-    const r = await fetch(`https://kick.com/api/v2/channels/${slug}`, { headers: UA });
+    const r = await fetch(`https://kick.com/api/v2/channels/${slug}`, { headers: UA, signal: AbortSignal.timeout(UPSTREAM_MS) });
     if (r.status === 404) return json({ error: 'offline' }, 404);
     if (!r.ok) throw new Error('status ' + r.status);
     c = await r.json();
   } catch (e) {
+    if (timedOut(e)) return gatewayTimeout('kick play ' + slug, {});
     console.error('kick play failed', slug, String(e));
     return json({ error: 'kick unavailable' }, 502);
   }

@@ -3,6 +3,7 @@ import { featured as kickFeatured, play as kickPlay } from './kick.js';
 import { popular as kyivstarPopular, channel as kyivstarChannel } from './kyivstar.js';
 import { account, address, isAccountRoute } from './account.js';
 import { popular as spotifyPopular } from './spotify.js';
+import { UPSTREAM_MS, gatewayTimeout, timedOut } from './upstream.js';
 
 export { Guard } from './guard.js';
 
@@ -28,12 +29,15 @@ const TTL = 6 * 60 * 60;
  * What the TV gets when TMDB is down, refuses the key or answers in a shape it no longer reads: the same shape, empty.
  * ShelfFeed then keeps the posters it has and tries again later; console.error is what Sentra's monitoring sees.
  */
-function tmdbEmpty(path, why) {
-  if (why) console.error('tmdb shelf empty', path, why);
-  const body = path.endsWith('/images') ? { backdrops: [] }
+function tmdbEmptyBody(path) {
+  return path.endsWith('/images') ? { backdrops: [] }
     : path.endsWith('/external_ids') || DETAILS.test(path) ? {}
       : { page: 1, results: [], total_pages: 0, total_results: 0 };
-  return new Response(JSON.stringify(body), {
+}
+
+function tmdbEmpty(path, why) {
+  if (why) console.error('tmdb shelf empty', path, why);
+  return new Response(JSON.stringify(tmdbEmptyBody(path)), {
     headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
   });
 }
@@ -126,12 +130,14 @@ export default {
     // show, so a 401 cached under an old token kept coming back, now and then, after the token changed.
     let data;
     try {
-      const answer = await fetch(upstream.toString(), { headers, cache: 'no-store' });
+      const answer = await fetch(upstream.toString(), { headers, cache: 'no-store', signal: AbortSignal.timeout(UPSTREAM_MS) });
       // An unknown title's images or ids: nothing to show, and nothing broken either.
       if (answer.status === 404) return tmdbEmpty(url.pathname, '');
       if (!answer.ok) return tmdbEmpty(url.pathname, 'status ' + answer.status);
       data = await answer.json();
     } catch (e) {
+      // A TMDB that hangs: the TV hears so before its own read timeout, with the same empty shape.
+      if (timedOut(e)) return gatewayTimeout('tmdb ' + url.pathname, tmdbEmptyBody(url.pathname));
       return tmdbEmpty(url.pathname, e instanceof Error ? `${e.name}: ${e.message}` : String(e));
     }
     const list = !/\/(images|external_ids)$/.test(url.pathname) && !DETAILS.test(url.pathname);

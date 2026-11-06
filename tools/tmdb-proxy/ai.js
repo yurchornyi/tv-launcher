@@ -6,6 +6,7 @@
 // parses prose. Each request also says who asks (asker): the TV's profile and its name go to Sentra for the owner to
 // read, the account and ids stay here, for the limit and for picks that do not repeat themselves.
 import { accountKey, address } from './account.js';
+import { UPSTREAM_MS } from './upstream.js';
 
 /** The schema as a check: true when `value` has the shape (types, enums, required keys) the TV relies on. */
 function fits(schema, value) {
@@ -298,7 +299,8 @@ async function tmdbFind(env, title, year, kind, lang) {
   u.searchParams.set('query', title);
   u.searchParams.set('language', lang);
   if (Number.isInteger(year)) u.searchParams.set(kind === 'tv' ? 'first_air_date_year' : 'year', String(year));
-  const r = await fetch(tmdbUrl(env, u), { headers: tmdbHeaders(env), cache: 'no-store' });
+  // A hung TMDB loses this pick (picks() catches), not the TV's whole answer.
+  const r = await fetch(tmdbUrl(env, u), { headers: tmdbHeaders(env), cache: 'no-store', signal: AbortSignal.timeout(UPSTREAM_MS) });
   if (!r.ok) return null;
   const data = await r.json();
   const best = (data.results || []).find((x) => x.backdrop_path) || null;

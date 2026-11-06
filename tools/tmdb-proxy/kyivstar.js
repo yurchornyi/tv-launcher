@@ -4,6 +4,8 @@
 // anonymous visitor sees it. Answers are cached at the edge for three hours. When Kyivstar is down or changes its API,
 // the shelf comes back empty (the TV keeps what it has) and console.error tells Sentra's monitoring.
 
+import { UPSTREAM_MS, gatewayTimeout } from './upstream.js';
+
 const API = 'https://clients.production.vidmind.com/vidmind-stb-ws';
 const HEADERS = { 'x-vidmind-device-type': 'WEB', 'User-Agent': 'Mozilla/5.0 (Linux; Android 12; TV) tv-launcher' };
 const TTL = 3 * 60 * 60;
@@ -25,11 +27,11 @@ const NEVER = /(^|[^\p{L}])(свати|сваты|svaty|слуга народу|
 
 let session = null;   // { id, at }: one anonymous session per Worker instance, renewed after an hour
 
-async function sid(fresh) {
+async function sid(fresh, signal) {
   if (!fresh && session && Date.now() - session.at < 60 * 60 * 1000) return session.id;
   const body = new URLSearchParams({ username: '557455cfe4b04ad886a6ae41\\anonymous', password: 'anonymous' });
   const r = await fetch(API + '/api/v1/authentication/login', {
-    method: 'POST', headers: { ...HEADERS, 'Content-Type': 'application/x-www-form-urlencoded' }, body,
+    method: 'POST', headers: { ...HEADERS, 'Content-Type': 'application/x-www-form-urlencoded' }, body, signal,
   });
   if (!r.ok) throw new Error('kyivstar login ' + r.status);
   const u = await r.json();
@@ -37,11 +39,14 @@ async function sid(fresh) {
   return session.id;
 }
 
-/** GET on the clients API; "{s}" in the path is where the session goes. One retry with a new session on 401/403. */
-async function get(path) {
+/**
+ * GET on the clients API; "{s}" in the path is where the session goes. One retry with a new session on 401/403.
+ * `signal` is the request's whole time budget (cached()), shared by every call one shelf makes.
+ */
+async function get(path, signal) {
   for (let attempt = 0; attempt < 2; attempt++) {
-    const s = await sid(attempt > 0);
-    const r = await fetch(API + path.replace('{s}', ';jsessionid=' + s), { headers: HEADERS });
+    const s = await sid(attempt > 0, signal);
+    const r = await fetch(API + path.replace('{s}', ';jsessionid=' + s), { headers: HEADERS, signal });
     if (r.ok) return r.json();
     if (r.status !== 401 && r.status !== 403) throw new Error('kyivstar ' + r.status + ' ' + path);
   }
@@ -49,30 +54,30 @@ async function get(path) {
 }
 
 /** A group's assets; an empty one is logged, since the groups this Worker reads are never empty on Kyivstar TV. */
-async function group(id, limit, name = id) {
-  const g = await get(`/api/v1/gallery/v3/contentgroups/${id}{s}?offset=0&limit=${limit}`);
+async function group(id, limit, name, signal) {
+  const g = await get(`/api/v1/gallery/v3/contentgroups/${id}{s}?offset=0&limit=${limit}`, signal);
   const assets = Array.isArray(g.assets) ? g.assets : [];
   if (!assets.length) console.error('kyivstar group empty', name, id);
   return assets;
 }
 
 /** Each group in `groups` (by its id on the main page, else the known one), [] for one that fails. */
-function groups(ids, list) {
-  return Promise.all(list.map((g) => group(ids[g.name] || g.id, 20, g.name).catch((e) => {
+function groups(ids, list, signal) {
+  return Promise.all(list.map((g) => group(ids[g.name] || g.id, 20, g.name, signal).catch((e) => {
     console.error('kyivstar group', g.name, String(e));
     return [];
   })));
 }
 
 /** The main page's group ids by name; the weekly top is a compilation whose first element is the group. */
-async function groupIds() {
+async function groupIds(signal) {
   const out = {};
   try {
-    const areas = await get('/api/v2/contentareas/MY_TV_Anonymous{s}?includeRestricted=true');
+    const areas = await get('/api/v2/contentareas/MY_TV_Anonymous{s}?includeRestricted=true', signal);
     for (const a of areas) out[a.name] = a.assetId;
     const topArea = areas.find((a) => a.name && a.name.startsWith(TOP_WEEK.name));
     if (topArea) {
-      const elements = await get(`/api/v1/compilations/${topArea.assetId}{s}`);
+      const elements = await get(`/api/v1/compilations/${topArea.assetId}{s}`, signal);
       const first = elements.find((e) => e.assetType === 'CONTENT_GROUP');
       if (first) out[TOP_WEEK.name] = first.assetId;
     }
@@ -129,21 +134,25 @@ function json(o, maxAge) {
 }
 
 /**
- * `build` gives { items }; only a list with something in it is cached, under `url` (the path and only the parameters
- * read, so a made-up one cannot skip the cache and send each request on to Kyivstar). An empty one is logged when
- * `needed`.
+ * `build(signal)` gives { items }; only a list with something in it is cached, under `url` (the path and only the
+ * parameters read, so a made-up one cannot skip the cache and send each request on to Kyivstar). An empty one is
+ * logged when `needed`. `signal` ends every Kyivstar call after UPSTREAM_MS in all: a shelf built when it ran out
+ * (its failed calls swallowed on the way) is a 504, never a short list cached for hours.
  */
 async function cached(url, ctx, build, needed = true) {
   const key = new Request(url.toString(), { method: 'GET' });
   const hit = await caches.default.match(key);
   if (hit) return hit;
+  const signal = AbortSignal.timeout(UPSTREAM_MS);
   let body;
   try {
-    body = await build();
+    body = await build(signal);
   } catch (e) {
+    if (signal.aborted) return gatewayTimeout('kyivstar ' + url.pathname, { items: [] });
     console.error('kyivstar shelf empty', url.pathname, String(e));
     return json({ items: [] }, 0);
   }
+  if (signal.aborted) return gatewayTimeout('kyivstar ' + url.pathname, { items: [] });
   const items = body && Array.isArray(body.items) ? body.items : [];
   if (!items.length) {
     if (needed) console.error('kyivstar shelf empty', url.pathname, 'nothing usable');
@@ -159,9 +168,9 @@ async function cached(url, ctx, build, needed = true) {
  * short of thirty, what is new on Kyivstar TV and its Ukrainian series and films, interleaved the same way.
  */
 export function popular(request, ctx) {
-  return cached(new URL('/kyivstar/popular', request.url), ctx, async () => {
-    const ids = await groupIds();
-    const lists = await groups(ids, [TOP_WEEK, POPULAR_FILMS, POPULAR_SERIES]);
+  return cached(new URL('/kyivstar/popular', request.url), ctx, async (signal) => {
+    const ids = await groupIds(signal);
+    const lists = await groups(ids, [TOP_WEEK, POPULAR_FILMS, POPULAR_SERIES], signal);
     const items = [];
     const seen = new Set();
     const add = (a) => {
@@ -179,7 +188,7 @@ export function popular(request, ctx) {
     };
     lists[0].slice(0, 10).forEach(add);
     interleave(lists[1], lists[2]);
-    if (items.length < MAX) interleave(...(await groups(ids, [NEW, UKRAINIAN])));
+    if (items.length < MAX) interleave(...(await groups(ids, [NEW, UKRAINIAN], signal)));
     return { items: items.slice(0, MAX) };
   });
 }
@@ -196,7 +205,7 @@ export function channel(request, ctx, url) {
   const key = new URL('/kyivstar/channel', request.url);
   key.searchParams.set('id', id);
   key.searchParams.set('name', name);
-  return cached(key, ctx, async () => {
+  return cached(key, ctx, async (signal) => {
     const items = [];
     const names = new Set();
     const add = (asset, title) => {
@@ -211,14 +220,14 @@ export function channel(request, ctx, url) {
     };
     const same = (a, b) => a.toLowerCase().replace(/\s+hd$/, '') === b.toLowerCase().replace(/\s+hd$/, '');
     if (name) {
-      const programs = await group(POPULAR_PROGRAMS.id, 100).catch(() => []);
+      const programs = await group(POPULAR_PROGRAMS.id, 100, POPULAR_PROGRAMS.name, signal).catch(() => []);
       for (const p of programs) if (p.channelName && same(p.channelName, name)) add(p);
     }
     // The guide: each show weighed by how often it is on, an evening (18:00-23:00 Kyiv) showing counting three times.
     const day = (offset) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10).replace(/-/g, '');
     let guide = [];
     try {
-      guide = await get(`/livechannels/${id}/epg{s}?from=${day(0)}&to=${day(2)}`);
+      guide = await get(`/livechannels/${id}/epg{s}?from=${day(0)}&to=${day(2)}`, signal);
     } catch (e) {
       console.warn('epg', String(e));
     }
@@ -236,9 +245,9 @@ export function channel(request, ctx, url) {
     const ranked = [...weight.entries()].sort((a, b) => b[1] - a[1]).map(([show]) => show)
       .filter((show) => !names.has(show.toLowerCase()) && !NEVER.test(show));
     for (const show of ranked.slice(0, 10)) {
-      if (items.length >= 12) break;
+      if (items.length >= 12 || signal.aborted) break;
       try {
-        const hits = await get(`/api/v1/search/predictive{s}?q=${encodeURIComponent(show)}&limit=10&includeLiveChannels=false`);
+        const hits = await get(`/api/v1/search/predictive{s}?q=${encodeURIComponent(show)}&limit=10&includeLiveChannels=false`, signal);
         const want = show.toLowerCase();
         const hit = (hits || []).find((h) => (h.assetType === 'MOVIE' || h.assetType === 'SERIES')
           && showName(h.name).toLowerCase() === want && image(h));
