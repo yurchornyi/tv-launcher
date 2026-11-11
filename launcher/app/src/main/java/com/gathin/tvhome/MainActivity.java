@@ -801,10 +801,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         ambient.forceHasOverlappingRendering(false);
         heroName = findViewById(R.id.heroName);
         heroArt = findViewById(R.id.heroArt);
-        // The glow lies under the shelf art. While that art is up in full and opaque (a poster, a softened banner)
-        // it cannot be seen, yet drawing it still filled the whole screen once more on every frame, a quarter of
-        // the shelf's GPU work on a slow TV. Checked right before each frame, since the art fades in and out from
-        // many places; the glow is only skipped, its own alpha and fades carry on.
+        // The glow lies under the shelf art. While that art is up in full and opaque (a poster, a softened banner, a
+        // song's colour field behind the Now Playing card) it cannot be seen, yet drawing it still filled the whole
+        // screen once more on every frame, a quarter of the shelf's GPU work on a slow TV. Checked right before each
+        // frame, since the art fades in and out from many places; the glow is only skipped, its own alpha and fades
+        // carry on (and, INVISIBLE, they no longer repaint the shelf's layer: BackdropLayout).
         root.getViewTreeObserver().addOnPreDrawListener(() -> {
             Drawable art = heroArt.getDrawable();
             boolean covered = art != null && heroArt.getAlpha() >= 1f && heroArt.getVisibility() == View.VISIBLE

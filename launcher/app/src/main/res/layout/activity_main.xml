@@ -12,30 +12,38 @@
         android:layout_height="match_parent"
         android:importantForAccessibility="no" />
 
-    <!-- Ambient glow in the colour of the focused dock app. -->
-    <View
-        android:id="@+id/ambient"
+    <!-- The shelf's full-screen pictures, one texture while they hold still (BackdropLayout). -->
+    <com.gathin.tvhome.BackdropLayout
+        android:id="@+id/backdrop"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:alpha="0" />
+        android:importantForAccessibility="no">
 
-    <!-- Top shelf art (config.xml top_shelf_art): the focused dock app's banner, heavily softened, washing the
-         screen behind the shelf, with a fade into the background towards the dock. -->
-    <ImageView
-        android:id="@+id/heroArt"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:scaleType="fitXY"
-        android:alpha="0"
-        android:importantForAccessibility="no" />
+        <!-- Ambient glow in the colour of the focused dock app. -->
+        <View
+            android:id="@+id/ambient"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:alpha="0" />
 
-    <View
-        android:id="@+id/heroFade"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@drawable/top_shelf_fade"
-        android:alpha="0"
-        android:importantForAccessibility="no" />
+        <!-- Top shelf art (config.xml top_shelf_art): the focused dock app's banner, heavily softened, washing the
+             screen behind the shelf, with a fade into the background towards the dock. -->
+        <ImageView
+            android:id="@+id/heroArt"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="fitXY"
+            android:alpha="0"
+            android:importantForAccessibility="no" />
+
+        <View
+            android:id="@+id/heroFade"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/top_shelf_fade"
+            android:alpha="0"
+            android:importantForAccessibility="no" />
+    </com.gathin.tvhome.BackdropLayout>
 
     <!-- Title of the TMDB backdrop on the top shelf (shelf_feed_apps), positioned above the dock in code. -->
     <TextView
