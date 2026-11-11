@@ -129,10 +129,10 @@ final class AppLibraryDialog {
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         popup.setOutsideTouchable(true);
         popup.setAnimationStyle(0);
-        popup.setOnDismissListener(() -> { dismissActions(); stopHighlight(); dismissed.run(); });
+        popup.setOnDismissListener(() -> { dismissActionsNow(); stopHighlight(); dismissed.run(); });
     }
 
-    void close() { dismissActions(); popup.dismiss(); }
+    void close() { dismissActionsNow(); popup.dismiss(); }
 
     void show() {
         refresh();
@@ -295,6 +295,14 @@ final class AppLibraryDialog {
         if (menu != null) menu.dismiss();
     }
 
+    /** The library itself is closing: its menu goes with it at once, not back into a card that is gone. */
+    private void dismissActionsNow() {
+        PopupWindow menu = actionPopup;
+        actionPopup = null;
+        if (menu instanceof FromButton.Popup) ((FromButton.Popup) menu).dismissNow();
+        else if (menu != null) menu.dismiss();
+    }
+
     private void restoreCardFocus() {
         if (catalog == null || !popup.isShowing()) return;
         catalog.post(() -> {
@@ -355,7 +363,7 @@ final class AppLibraryDialog {
         if (spring != null) spring.cancel();
         View menuPanel = activity.getLayoutInflater().inflate(R.layout.popup_inputs, panel, false);
         LinearLayout rows = menuPanel.findViewById(R.id.rows);
-        PopupWindow menu = new PopupWindow(menuPanel, dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        FromButton.Popup menu = new FromButton.Popup(menuPanel, dp(220), ViewGroup.LayoutParams.WRAP_CONTENT, true);
         actionPopup = menu;
         menu.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         menu.setOutsideTouchable(true);
@@ -394,13 +402,24 @@ final class AppLibraryDialog {
                 panelLocation[0] + panel.getWidth(), panelLocation[1] + panel.getHeight());
         int x = Math.max(screen.left + dp(12), Math.min(location[0] + anchor.getWidth() - dp(12), screen.right - menuWidth - dp(12)));
         int y = Math.max(screen.top + dp(12), Math.min(location[1] + dp(8), screen.bottom - menuPanel.getMeasuredHeight() - dp(12)));
-        menuPanel.setAlpha(0f);
-        menuPanel.setPivotY(0f);
-        menuPanel.setScaleY(0.92f);
-        menuPanel.setTranslationY(-dp(8));
-        menu.showAtLocation(activity.getWindow().getDecorView(), Gravity.TOP | Gravity.START, x, y);
-        menuPanel.animate().alpha(1f).scaleY(1f).translationY(0f).setDuration(220)
-                .setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f)).start();
+        // The menu comes out of the app's card (FromButton): its window takes in the card too, transparent there.
+        Rect card = FromButton.bounds(anchor);
+        int left = Math.min(x, card.left), top = Math.min(y, card.top);
+        int right = Math.max(x + menuWidth, card.right);
+        int bottom = Math.max(y + menuPanel.getMeasuredHeight(), card.bottom);
+        android.widget.FrameLayout room = new android.widget.FrameLayout(activity);
+        android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(menuWidth,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.leftMargin = x - left;
+        lp.topMargin = y - top;
+        room.addView(menuPanel, lp);
+        menu.setContentView(room);
+        menu.setWidth(right - left);
+        menu.setHeight(bottom - top);
+        int motion = FromButton.motion(animations, reducedMotion);
+        menu.from(menuPanel, card, motion);
+        FromButton.grow(menuPanel, card, motion);
+        menu.showAtLocation(activity.getWindow().getDecorView(), Gravity.TOP | Gravity.START, left, top);
         rows.getChildAt(0).requestFocus();
     }
 

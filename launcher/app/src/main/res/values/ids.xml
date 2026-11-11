@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The animation a panel is running out of (or back into) its button (FromButton). -->
+    <item name="from_button_anim" type="id" />
+</resources>

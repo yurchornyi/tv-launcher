@@ -1358,6 +1358,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         }
         super.onResume();
         homeInFront = true;
+        AudioBanner.from(btnAudio);   // headphones connecting now: their banner comes out of this button
         // A festival that started or ended while Home was in the background: rebuild with or without it.
         if (festive != festival.active(LocalDate.now())) {
             recreate();
@@ -1554,6 +1555,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     protected void onPause() {
         super.onPause();
         homeInFront = false;
+        AudioBanner.from(null);
         endReorder();   // Home or another app while reordering keeps the order so far
         Backup.exportLater(this);
         wallpaperPlayer.stop();
@@ -4735,16 +4737,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg))));
         panel.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
         popup.setWidth(Math.max((int) (240 * density), panel.getMeasuredWidth()));
-        // Under the tile, or over it when the tile sits low on the screen.
+        // Under the tile, or over it when the tile sits low on the screen; out of the tile either way.
         int[] at = new int[2];
         anchor.getLocationOnScreen(at);
         boolean above = at[1] + anchor.getHeight() + panel.getMeasuredHeight() + 20 * density > root.getHeight();
-        if (above) {
-            popup.showAsDropDown(anchor, 0, -anchor.getHeight() - panel.getMeasuredHeight() - (int) (10 * density),
-                    Gravity.START);
-        } else {
-            dropIn(popup, panel, anchor, Gravity.START);
-        }
+        growFrom(popup, panel, anchor, Gravity.START, above);
         rows.getChildAt(0).requestFocus();
         return true;
     }
@@ -5383,7 +5380,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     }
 
     private PopupWindow glassPopup(View panel, int width) {
-        final PopupWindow popup = new PopupWindow(panel, width, ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        final PopupWindow popup = new FromButton.Popup(panel, width, ViewGroup.LayoutParams.WRAP_CONTENT, true);
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));   // needed for Back to dismiss
         popup.setOutsideTouchable(true);
         popup.setAnimationStyle(0);
@@ -5395,15 +5392,36 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         return popup;
     }
 
-    /** Drop in: fade and unfold from the top edge, hanging under the anchor pill. */
+    /** A menu hanging under the button (or tile) it belongs to, grown out of it (growFrom). */
     private void dropIn(PopupWindow popup, View panel, View anchor, int gravity) {
-        panel.setAlpha(0f);
-        panel.setPivotY(0f);
-        panel.setScaleY(0.92f);
-        panel.setTranslationY(-8 * density);
-        popup.showAsDropDown(anchor, 0, (int) (10 * density), gravity);
-        panel.animate().alpha(1f).scaleY(1f).translationY(0f).setDuration(220)
-                .setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f)).start();
+        growFrom(popup, panel, anchor, gravity, false);
+    }
+
+    /**
+     * Shows a menu under its button, or over it when `above`, coming out of the button and going back into it when
+     * it closes (FromButton). The popup's window takes in the button as well, transparent there, so the panel can
+     * start over the button without being cut off at the window's edge.
+     */
+    private void growFrom(PopupWindow popup, View panel, View anchor, int gravity, boolean above) {
+        int gap = (int) (10 * density);
+        int lift = anchor.getHeight() + gap;
+        int height = popup.getHeight();   // a set height (a long list that scrolls) or WRAP_CONTENT
+        android.widget.FrameLayout room = new android.widget.FrameLayout(this);
+        android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, height > 0 ? height : ViewGroup.LayoutParams.WRAP_CONTENT);
+        if (above) lp.bottomMargin = lift;
+        else lp.topMargin = lift;
+        room.addView(panel, lp);
+        popup.setContentView(room);
+        if (height > 0) popup.setHeight(height + lift);
+        // The window's top at the button's top (or its bottom at the button's bottom): the panel 10 dp from it.
+        int panelHeight = height > 0 ? height : panel.getMeasuredHeight();
+        int yoff = above ? -(panelHeight + lift) : -anchor.getHeight();
+        int motion = FromButton.motion(animations, reducedMotion);
+        Rect button = FromButton.bounds(anchor);
+        if (popup instanceof FromButton.Popup) ((FromButton.Popup) popup).from(panel, button, motion);
+        FromButton.grow(panel, button, motion);
+        popup.showAsDropDown(anchor, 0, yoff, gravity);
     }
 
     private void addSeparator(LinearLayout rows) {

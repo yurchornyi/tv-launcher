@@ -2,6 +2,7 @@ package com.gathin.tvhome;
 
 import android.content.Context;
 import android.graphics.PixelFormat;
+import android.graphics.Rect;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
@@ -10,21 +11,41 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
-import android.view.animation.DecelerateInterpolator;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
 /**
- * The banner that slides down at the top right when headphones or a speaker connect, over any app, like Apple TV's:
- * the device glyph, its name and "Connected" with the battery level. Needs the overlay permission (build-and-install grants it
- * with appops); without it nothing is shown. Gone after a few seconds, never focusable.
+ * The banner at the top right when headphones or a speaker connect, over any app, like Apple TV's: the device glyph,
+ * its name and "Connected" with the battery level. It comes out of the headphones button in Home's top bar and goes
+ * back into it a few seconds later (FromButton); over another app, from where that button sits on Home. Needs the
+ * overlay permission (build-and-install grants it with appops); without it nothing is shown. Never focusable.
  */
 final class AudioBanner {
 
     private static View shown;
+    /** Home's headphones button while Home is in front (MainActivity), else null. */
+    private static java.lang.ref.WeakReference<View> button;
+    /** Where that button was last seen on the screen: the banner comes from there over another app. */
+    private static Rect lastButton;
 
     private AudioBanner() { }
+
+    /** Home is in front with its headphones button (null: Home went to the background). */
+    static void from(View homeButton) {
+        button = homeButton == null ? null : new java.lang.ref.WeakReference<>(homeButton);
+    }
+
+    /** The button's place now, or where it was last; failing both, where it would be at the top right. */
+    private static Rect buttonPlace(Context ctx, int screenWidth, float d) {
+        View b = button != null ? button.get() : null;
+        if (b != null && b.isAttachedToWindow() && b.isShown() && b.getWidth() > 0) {
+            lastButton = FromButton.bounds(b);
+        }
+        if (lastButton != null) return new Rect(lastButton);
+        int size = (int) (46 * d), right = screenWidth - (int) (48 * d), top = (int) (34 * d);
+        return new Rect(right - size, top, right, top + size);
+    }
 
     static void show(Context context, String name, int battery, boolean speaker) {
         Context ctx = context.getApplicationContext();
@@ -98,6 +119,19 @@ final class AudioBanner {
         texts.addView(status);
         card.addView(texts, tlp);
 
+        // Hanging under the button, its outer edge in line with the button's. The window takes in the button too
+        // (transparent there), so the card can start over it without being cut off.
+        android.util.DisplayMetrics screen = new android.util.DisplayMetrics();
+        wm.getDefaultDisplay().getRealMetrics(screen);
+        Rect from = buttonPlace(ctx, screen.widthPixels, d);
+        boolean right = from.centerX() > screen.widthPixels / 2;
+        android.widget.FrameLayout room = new android.widget.FrameLayout(ctx);
+        android.widget.FrameLayout.LayoutParams clp = new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP | (right ? Gravity.RIGHT : Gravity.LEFT));
+        clp.topMargin = from.height() + (int) (12 * d);
+        room.addView(card, clp);
+
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -106,25 +140,31 @@ final class AudioBanner {
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
-        lp.gravity = Gravity.TOP | Gravity.END;
-        lp.x = (int) (48 * d);
-        lp.y = (int) (40 * d);
+        lp.gravity = Gravity.TOP | (right ? Gravity.RIGHT : Gravity.LEFT);
+        lp.x = right ? screen.widthPixels - from.right : from.left;
+        lp.y = from.top;
+        int motion = motion(ctx);
+        FromButton.grow(card, from, motion);
         try {
-            wm.addView(card, lp);
+            wm.addView(room, lp);
         } catch (RuntimeException e) {
             return;
         }
-        shown = card;
-        card.setAlpha(0f);
-        card.setTranslationY(-36 * d);
-        card.setScaleX(0.94f);
-        card.setScaleY(0.94f);
-        card.animate().alpha(1f).translationY(0f).scaleX(1f).scaleY(1f).setDuration(420)
-                .setInterpolator(new DecelerateInterpolator(2f)).start();
-        card.postDelayed(() -> card.animate().alpha(0f).translationY(-24 * d).setDuration(320).withEndAction(() -> {
-            try { wm.removeView(card); } catch (RuntimeException ignored) { }
-            if (shown == card) shown = null;
-        }).start(), 4000);
+        shown = room;
+        room.postDelayed(() -> FromButton.shrink(card, from, motion, () -> {
+            try { wm.removeView(room); } catch (RuntimeException ignored) { }
+            if (shown == room) shown = null;
+        }), 4000);
+    }
+
+    /** The launcher's motion setting (Config): out of the button, a plain fade, or none. */
+    private static int motion(Context ctx) {
+        try {
+            Config c = Config.load(ctx);
+            return FromButton.motion(c.animations, c.reducedMotion);
+        } catch (RuntimeException e) {
+            return FromButton.FULL;
+        }
     }
 
     /** A small horizontal battery: outline, cap and a fill for the level, red at 20% and below. */
