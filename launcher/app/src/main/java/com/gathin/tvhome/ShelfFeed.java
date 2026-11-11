@@ -523,6 +523,9 @@ final class ShelfFeed {
         shade.setShader(new android.graphics.LinearGradient(0, 0, w, 0, new int[]{0x80000000, 0x26000000, 0x00000000},
                 null, android.graphics.Shader.TileMode.CLAMP));
         c.drawRect(0, 0, w, h, shade);
+        // Painted over in full from an opaque base: opaque, so the shelf skips the ambient glow under it (MainActivity).
+        // Left translucent, that glow was one more full-screen pass on every frame under the Now Playing card.
+        out.setHasAlpha(false);
         return out;
     }
 
