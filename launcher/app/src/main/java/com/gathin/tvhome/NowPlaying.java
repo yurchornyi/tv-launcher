@@ -31,8 +31,15 @@ final class NowPlaying {
         final Bitmap cover;
         final long duration;
         final boolean playing;
+        /** No cover yet, but the player named one by URL and it is downloading (CoverArt): it comes in a moment. */
+        final boolean coverComing;
 
         Track(String title, String artist, String app, String pkg, Bitmap cover, long duration, boolean playing) {
+            this(title, artist, app, pkg, cover, duration, playing, false);
+        }
+
+        Track(String title, String artist, String app, String pkg, Bitmap cover, long duration, boolean playing,
+              boolean coverComing) {
             this.title = title;
             this.artist = artist;
             this.app = app;
@@ -40,8 +47,47 @@ final class NowPlaying {
             this.cover = cover;
             this.duration = duration;
             this.playing = playing;
+            this.coverComing = coverComing;
         }
     }
+
+    /**
+     * A new song's cover still downloading holds the card on the last song this long at most, so the new title and
+     * its cover come in together (pick).
+     */
+    static final long COVER_WAIT_MS = 1500;
+    /** When the card began holding a new song back for its cover, or 0. */
+    private long coverWaitSince;
+    private final Runnable coverWaitOver = this::pick;
+
+    /**
+     * Per player: the cover URL of its song and the pictures it sent. Spotify publishes a new song's title and cover
+     * URL together with the last song's picture still attached, then drops the picture and downloads the new one
+     * (its PlayerStateManager): that first picture must not be taken for the new song.
+     */
+    static final class Art {
+        private String url;
+        /** The picture sent with `url`, and the one sent with the URL before it (a signature each; 0: none). */
+        private long sent, before;
+
+        /**
+         * A picture (its signature; 0: none, or unreadable) came with this cover URL: false when it is the one sent
+         * with the previous URL, the last song's.
+         */
+        boolean fresh(String coverUrl, long picture) {
+            if (!coverUrl.equals(url)) {
+                before = sent;
+                sent = 0;
+                url = coverUrl;
+            }
+            if (picture == 0) return true;
+            if (picture == before) return false;
+            sent = picture;
+            return true;
+        }
+    }
+
+    private final java.util.Map<String, Art> art = new java.util.HashMap<>();
 
     private final Context ctx;
     private final Listener listener;
@@ -158,6 +204,8 @@ final class NowPlaying {
         for (MediaController c : watched) c.unregisterCallback(callback);
         watched.clear();
         described.clear();   // their covers too: read afresh when Home is back
+        main.removeCallbacks(coverWaitOver);
+        coverWaitSince = 0;
         msm = null;
     }
 
@@ -256,6 +304,21 @@ final class NowPlaying {
                     picture != null ? picture : next.cover, next.duration > 0 ? next.duration : r.duration, next.playing);
         }
         boolean same = next != null && track != null && next.title.equals(track.title) && next.artist.equals(track.artist);
+        // A new song whose cover is still downloading: the card stays on the last song a moment longer, so the new
+        // title comes in with its own cover, never over the last song's or beside an empty square that fills a
+        // moment later. COVER_WAIT_MS at most; then the title shows alone and the cover follows when it can.
+        if (next != null && !same && next.cover == null && next.coverComing) {
+            long now = SystemClock.elapsedRealtime();
+            if (coverWaitSince == 0) {
+                coverWaitSince = now;
+                main.postDelayed(coverWaitOver, COVER_WAIT_MS);
+            }
+            if (now - coverWaitSince < COVER_WAIT_MS) return;
+        }
+        if (coverWaitSince != 0) {
+            coverWaitSince = 0;
+            main.removeCallbacks(coverWaitOver);
+        }
         // Players resend the same cover as a new bitmap with every metadata update; keep the first one for the
         // track, so the card does not rebuild its backdrop (a visible flicker) on each update.
         // A different picture (Spotify first sends its own logo, the album's cover a moment later) replaces it.
@@ -295,8 +358,8 @@ final class NowPlaying {
         boolean playing = state(c) == PlaybackState.STATE_PLAYING;
         Track known = described.get(key);
         if (known != null) {
-            return known.playing == playing ? known
-                    : new Track(known.title, known.artist, known.app, known.pkg, known.cover, known.duration, playing);
+            return known.playing == playing ? known : new Track(known.title, known.artist, known.app, known.pkg,
+                    known.cover, known.duration, playing, known.coverComing);
         }
         Track read = read(c);
         if (read != null) described.put(key, read);
@@ -324,18 +387,20 @@ final class NowPlaying {
             Log.d("TvHome.Meta", c.getPackageName() + ": " + sb);
         }
         // The album's art, or the track's; never DISPLAY_ICON, which is the player's own logo (Spotify sends its
-        // logo there, and the real cover a moment later). A cover URL wins over the bitmap: Spotify's bitmap can
-        // still be an earlier song's while its URL already names the new one. The bitmap stands in until the URL's
-        // picture is fetched (CoverArt), and is all there is for a player that names no URL.
+        // logo there). A cover URL wins over the bitmap: it always names this song's cover, while Spotify's first
+        // bitmap for a new song is still the last song's (fresh() drops that one). A fresh bitmap stands in until
+        // the URL's picture is fetched (CoverArt), and is all there is for a player that names no URL.
         Bitmap cover = m.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
         if (cover == null) cover = m.getBitmap(MediaMetadata.METADATA_KEY_ART);
         String uri = m.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI);
         if (uri == null) uri = m.getString(MediaMetadata.METADATA_KEY_ART_URI);
         if (uri == null && cover == null) uri = m.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI);
+        boolean coming = false;
         if (uri != null && uri.startsWith("http")) {
+            cover = fresh(c.getPackageName(), uri, cover);
             Bitmap fetched = CoverArt.cached(uri);
             if (fetched != null) cover = fetched;
-            else CoverArt.fetch(uri, () -> main.post(() -> { described.clear(); pick(); }));
+            else coming = CoverArt.fetch(uri, () -> main.post(() -> { described.clear(); pick(); }));
         }
         long duration = m.getLong(MediaMetadata.METADATA_KEY_DURATION);
         // A video app with a title only (KIK, HDRezka): the film's poster and running time from TMDB.
@@ -351,7 +416,31 @@ final class NowPlaying {
         }
         String app = label(c.getPackageName());
         return new Track(title, artist, app, c.getPackageName(), cover, duration,
-                state(c) == PlaybackState.STATE_PLAYING);
+                state(c) == PlaybackState.STATE_PLAYING, cover == null && coming);
+    }
+
+    /**
+     * The picture a player sent along with a cover URL, or null when it is the one it sent with its previous URL:
+     * the last song's, still attached to the new song's first update (Spotify; see Art).
+     */
+    private Bitmap fresh(String pkg, String url, Bitmap sent) {
+        Art a = art.get(pkg);
+        if (a == null) art.put(pkg, a = new Art());
+        return a.fresh(url, sent == null ? 0 : signature(sent)) ? sent : null;
+    }
+
+    /** A picture's size and a handful of its pixels in one number, or 0 when it cannot be read. */
+    static long signature(Bitmap b) {
+        try {
+            int w = b.getWidth(), h = b.getHeight();
+            long s = w * 31L + h;
+            for (int i = 1; i < 5; i++) {
+                for (int j = 1; j < 5; j++) s = s * 1_000_003L + b.getPixel(w * i / 5, h * j / 5);
+            }
+            return s == 0 ? 1 : s;
+        } catch (RuntimeException e) {   // a recycled or hardware bitmap
+            return 0;
+        }
     }
 
     /** The app's name as the launcher shows it. */

@@ -37,9 +37,13 @@ final class CoverArt {
         cache.evictAll();
     }
 
-    /** Downloads the picture on a worker thread; `done` is called (on that thread) once it is cached. */
-    static synchronized void fetch(String url, Runnable done) {
-        if (cache.get(url) != null || failed.contains(url) || !loading.add(url)) return;
+    /**
+     * Downloads the picture on a worker thread; `done` is called (on that thread) once it is cached. True while it
+     * is on its way (this call started it, or an earlier one did); false when it is cached already or failed before.
+     */
+    static synchronized boolean fetch(String url, Runnable done) {
+        if (cache.get(url) != null || failed.contains(url)) return false;
+        if (!loading.add(url)) return true;
         new Thread(() -> {
             Bitmap bmp = null;
             try {
@@ -83,5 +87,6 @@ final class CoverArt {
             }
             if (bmp != null) done.run();
         }, "cover-art").start();
+        return true;
     }
 }
