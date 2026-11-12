@@ -2434,14 +2434,25 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         }
         // Recorded while it played (SmartTube, NowPlayingListener), after anything opened from Home: that video first.
         PlayerReport.Report r = PlayerReport.latest(this);
+        boolean recorded = false;
         if (r != null && r.pkg.equals(pkg) && NowPlayingListener.RECORDED.contains(pkg) && r.poster.startsWith("https://")
                 && !r.open.isEmpty() && (continueItem == null || continueItem.backdrop == null || r.at > openedAt)) {
+            recorded = true;
             android.util.Log.i("TvHome", pkg + ": continue " + r.title + " at " + r.position / 1000 + " s");
             continueItem = new ShelfFeed.Item(r.title, r.poster, r.open, "", 0);
             continueItem.position = r.position;
             continueItem.duration = r.duration > 0 ? r.duration : ChannelFeed.length(pkg, r.title);
         }
         if (continueItem == null || continueItem.backdrop == null) return items;
+        // Whether the app itself tells where its titles were left (KIK's channel): then its word decides, not Home's
+        // record of a title opened from the shelf.
+        boolean knowsPlaces = false;
+        for (ShelfFeed.Item i : items) {
+            if (i.position > 0) {
+                knowsPlaces = true;
+                break;
+            }
+        }
         List<ShelfFeed.Item> out = new ArrayList<>();
         out.add(continueItem);
         for (ShelfFeed.Item i : items) {
@@ -2452,6 +2463,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 if (i.position > 0) continueItem.position = i.position;
                 continueItem.duration = i.duration;
             }
+        }
+        if (!ShelfFeed.watched(knowsPlaces, recorded, continueItem.position)) {
+            continueItem = null;   // opened, never watched: the shelf as the app has it
+            return items;
         }
         return out;
     }

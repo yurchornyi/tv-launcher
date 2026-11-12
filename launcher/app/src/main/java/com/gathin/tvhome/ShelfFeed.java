@@ -78,6 +78,20 @@ final class ShelfFeed {
     /** bitmap is null when the backdrop could not be loaded. */
     interface ImageListener { void onImage(String backdrop, Bitmap bitmap); }
 
+    /** Less than this of a recorded video (SmartTube) is a start, not a place to continue from. */
+    static final long MIN_WATCHED_MS = 30_000;
+
+    /**
+     * Whether a title Home would put first as «Продовжити» was watched. Where the app tells its own places (KIK's
+     * channel), only a place it knows counts: a title merely opened from Home's shelf is not watched (owner, 13.11:
+     * «Тримай Чарлі» said Continue though he never watched it). A recorded video counts from MIN_WATCHED_MS on. An app
+     * that tells nothing (Netflix) leaves Home's record of what was opened standing.
+     */
+    static boolean watched(boolean appKnowsPlaces, boolean recorded, long position) {
+        if (recorded) return position >= MIN_WATCHED_MS;
+        return !appKnowsPlaces || position > 0;
+    }
+
     private static final String TAG = "TvHome.ShelfFeed";
     /** The Worker that asks TMDB on the launcher's behalf (config.xml tmdb_proxy). */
     private final String API;
