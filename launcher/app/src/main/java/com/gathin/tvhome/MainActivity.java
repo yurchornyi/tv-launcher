@@ -2113,12 +2113,23 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     // ---- top shelf -------------------------------------------------------------------------------
 
+    /** Whether the Now Playing card takes the shelf over this dock tile (NowPlaying.overTile). */
+    private boolean nowPlayingOver(int position) {
+        NowPlaying.Track t = nowPlaying.track();
+        if (t == null) return true;   // showNowPlaying hides what is left of it
+        List<String> dock = new ArrayList<>();
+        for (int i = 0; i < COLUMNS && i < adapter.appCount(); i++) dock.add(adapter.pkgAt(i));
+        return NowPlaying.overTile(t.pkg, t.playing, NowPlaying.video(this, t.pkg), adapter.pkgAt(position), dock);
+    }
+
     private void showHero(int position, float dockTopInRoot) {
         lastDockTop = dockTopInRoot;
         lastHeroPosition = position;
         // Not while another app is in front (onPause moving focus would start a carousel nobody sees).
         if (searching || !homeInFront) return;
-        if (!showNowPlaying()) {
+        boolean card = nowPlayingOver(position);
+        if (!card) hideNowPlaying(animations);
+        if (!card || !showNowPlaying()) {
             boolean channels = showChannels(position);   // the row sits over the posters, so both may show
             // No posters: the app's own softened banner, also under a channel row (never the last app's picture).
             if (!showFeed(position) && !showShelfArt(position) && !channels) hideShelfArt(animations);
@@ -3989,8 +4000,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 shelfOpen.setVisibility(View.VISIBLE);
                 shelfOpen.setAlpha(0f);
             }
+            // Always: the last app's pill began fading out a moment ago in the same pass (stopFeed, from SmartTube to
+            // Kyivstar with both posters cached) and still reads alpha 1. Left running, it took the new app's pill
+            // away just after its label changed, and the title stood over an empty space until the next poster.
+            shelfOpen.animate().cancel();
             if (shelfOpen.getAlpha() < 1f) {
-                shelfOpen.animate().cancel();
                 if (animate) shelfOpen.animate().alpha(1f).setDuration(400).start();
                 else shelfOpen.setAlpha(1f);
             }
