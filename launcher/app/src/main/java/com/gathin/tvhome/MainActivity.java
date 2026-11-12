@@ -5763,7 +5763,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (!above && popup instanceof FromButton.Popup && anchor.getParent() == findViewById(R.id.topButtons)
                 && anchor.getWidth() > 0) {
             int motion = FromButton.motion(animations, reducedMotion);
-            MorphMenu morph = new MorphMenu(this, anchor, panel, gravity == Gravity.END, motion);
+            MorphMenu morph = new MorphMenu(this, anchor, panel, menuTitle(anchor), gravity == Gravity.END, motion);
             int height = popup.getHeight();   // a set height (a long list that scrolls) or WRAP_CONTENT
             if (height > 0) {
                 panel.getLayoutParams().height = height;
@@ -5795,6 +5795,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (popup instanceof FromButton.Popup) ((FromButton.Popup) popup).from(panel, button, motion);
         FromButton.grow(panel, button, motion);
         popup.showAsDropDown(anchor, 0, yoff, gravity);
+    }
+
+    /**
+     * The heading of a top bar button's menu (MorphMenu): what the button is for, not what it shows now. The Wi-Fi
+     * and headphones buttons are named by the network and the device, which their menus' first rows show already.
+     */
+    private CharSequence menuTitle(View anchor) {
+        if (anchor == btnWifi) return getString(R.string.wifi);
+        if (anchor == btnAudio) return getString(R.string.bluetooth);
+        return null;
     }
 
     private void addSeparator(LinearLayout rows) {
