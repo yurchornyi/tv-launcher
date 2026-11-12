@@ -48,7 +48,7 @@ public final class SeasonView extends View {
     private final float d;
     private final Random rnd = new Random();
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Path leaf = new Path(), vein = new Path(), petal = new Path();
+    private final Path leaf = new Path(), petal = new Path();
     private final RectF oval = new RectF();
     private final Runnable next = this::invalidate;
 
@@ -89,14 +89,14 @@ public final class SeasonView extends View {
     private final float[] cap = new float[IDS];
 
     /**
-     * Rain, snow and splashes go out in a few batches (drawLines, drawPoints), one per depth layer, not one call per
-     * drop: a hundred and thirty lines each with its own width and alpha made issuing the frame's commands the slow
-     * part of Home on the XGIMI. LAYERS layers for rain, FLAKES for snow; the pieces are filled in, then drawn.
+     * Only shapes the GPU draws as they are: rectangles (a raindrop, a wet trail) and circles (a flake, a bead, a
+     * droplet), never a stroked line or a round point. Skia turns each of those into a path of its own, and on the
+     * XGIMI that doubled the cost of Home's frames while the rain fell (19 ms to 38 ms median moving along the dock),
+     * batched or not. The drops are a rectangle each in a canvas turned to the rain's slant, in LAYERS depth layers.
      */
-    private static final int LAYERS = 3, FLAKES = 4;
-    private final float[][] batch = new float[Math.max(LAYERS, FLAKES)][0];
-    private final int[] batched = new int[Math.max(LAYERS, FLAKES)];
-    private final float[] splashFresh = new float[SPLASHES * 2], splashFading = new float[SPLASHES * 2];
+    private static final int LAYERS = 3;
+    private final float[][] batch = new float[LAYERS][0];
+    private final int[] batched = new int[LAYERS];
     private float flashT = -1f, flashDue;
 
     public SeasonView(Context context) {
@@ -108,19 +108,11 @@ public final class SeasonView extends View {
         setWillNotDraw(false);
         setAlpha(0f);
         setVisibility(INVISIBLE);
-        // A leaf, a unit tall around its middle; its midrib and veins; a cherry petal.
+        // A leaf, a unit tall around its middle; a cherry petal.
         leaf.moveTo(0f, -0.5f);
         leaf.cubicTo(0.34f, -0.36f, 0.36f, 0.18f, 0f, 0.42f);
         leaf.cubicTo(-0.36f, 0.18f, -0.34f, -0.36f, 0f, -0.5f);
         leaf.close();
-        vein.moveTo(0f, -0.42f);
-        vein.lineTo(0f, 0.5f);
-        vein.moveTo(0f, -0.1f);
-        vein.lineTo(0.16f, -0.24f);
-        vein.moveTo(0f, 0.08f);
-        vein.lineTo(-0.16f, -0.06f);
-        vein.moveTo(0f, 0.2f);
-        vein.lineTo(0.14f, 0.08f);
         petal.moveTo(0f, -0.5f);
         petal.cubicTo(0.42f, -0.42f, 0.36f, 0.3f, 0f, 0.5f);
         petal.cubicTo(-0.36f, 0.3f, -0.42f, -0.42f, 0f, -0.5f);
@@ -280,7 +272,6 @@ public final class SeasonView extends View {
     private void fall(Canvas c, float dt, int w, int h) {
         float wind = (scene == Season.Scene.SNOW ? 8f : scene == Season.Scene.LEAVES ? 14f : 6f) * d;
         boolean snow = scene == Season.Scene.SNOW, flies = scene == Season.Scene.FIREFLIES;
-        Arrays.fill(batched, 0);
         for (int i = 0; i < n; i++) {
             if (restLeft[i] > 0f) {
                 restLeft[i] -= dt;
@@ -327,25 +318,13 @@ public final class SeasonView extends View {
             }
             if (px[i] > w + 40f * d) px[i] -= w + 80f * d;
             if (snow) {
-                int layer = Math.min(FLAKES - 1, (int) (depth[i] * FLAKES));
-                float[] points = batch[layer];
-                points[batched[layer]++] = x;
-                points[batched[layer]++] = y;
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(0xFFFFFFFF);
+                paint.setAlpha((int) (90 + 150 * depth[i]));
+                c.drawCircle(x, y, size[i], paint);
             } else {
                 drawPiece(c, i, x, y, 1f, false);
             }
-        }
-        if (!snow) return;
-        // Each layer's flakes as round points of its size and brightness, in one call.
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeCap(Paint.Cap.ROUND);
-        paint.setColor(0xFFFFFFFF);
-        for (int layer = 0; layer < FLAKES; layer++) {
-            if (batched[layer] == 0) continue;
-            float z = (layer + 0.5f) / FLAKES;
-            paint.setStrokeWidth(2f * (1.4f + 3.2f * z) * d);
-            paint.setAlpha((int) (90 + 150 * z));
-            c.drawPoints(batch[layer], 0, batched[layer], paint);
         }
     }
 
@@ -364,12 +343,10 @@ public final class SeasonView extends View {
         paint.setColor(shade(tint[i], (flip < 0f ? 0.8f : 1f) * (0.8f + 0.2f * Math.abs(flip))));
         paint.setAlpha(a);
         c.drawPath(isLeaf ? leaf : petal, paint);
-        if (isLeaf) {
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(0.05f);
+        if (isLeaf) {   // the midrib, a thin rectangle down the leaf (a stroked path costs as much as the rest)
             paint.setColor(shade(tint[i], 0.5f));
             paint.setAlpha(a * 2 / 3);
-            c.drawPath(vein, paint);
+            c.drawRect(-0.025f, -0.42f, 0.025f, 0.5f, paint);
         }
         c.restore();
     }
@@ -409,7 +386,9 @@ public final class SeasonView extends View {
     private void rain(Canvas c, float dt, int w, int h) {
         boolean storm = scene == Season.Scene.STORM;
         float slant = slant();
-        float k = 1f / (float) Math.sqrt(1 + slant * slant);
+        // The canvas turned so the rain falls straight down in it: each drop is an upright rectangle there.
+        double angle = Math.atan(slant);
+        float cos = (float) Math.cos(angle), sin = (float) Math.sin(angle);
         Arrays.fill(batched, 0);
         for (int i = 0; i < n; i++) {
             float before = py[i];
@@ -425,27 +404,30 @@ public final class SeasonView extends View {
                 spawn(i, w, h, false);
                 continue;
             }
-            float len = size[i] * k;
+            // The drop's lower end in the turned canvas, and its length along the fall.
             int layer = Math.min(LAYERS - 1, (int) (depth[i] * LAYERS));
-            float[] lines = batch[layer];
+            float[] drops = batch[layer];
             int o = batched[layer];
-            lines[o] = px[i] - slant * len;
-            lines[o + 1] = py[i] - len;
-            lines[o + 2] = px[i];
-            lines[o + 3] = py[i];
-            batched[layer] = o + 4;
+            drops[o] = cos * px[i] - sin * py[i];
+            drops[o + 1] = sin * px[i] + cos * py[i];
+            drops[o + 2] = size[i];
+            batched[layer] = o + 3;
         }
-        // Far drops thin and faint, near ones wider and brighter: one call per layer.
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeCap(Paint.Cap.ROUND);
+        // Far drops thin and faint, near ones wider and brighter.
+        c.save();
+        c.rotate((float) -Math.toDegrees(angle));
+        paint.setStyle(Paint.Style.FILL);
         paint.setColor(WATER);
         for (int layer = 0; layer < LAYERS; layer++) {
-            if (batched[layer] == 0) continue;
             float z = (layer + 0.5f) / LAYERS;
-            paint.setStrokeWidth((0.9f + 0.9f * z) * d);
+            float half = (0.45f + 0.45f * z) * d;
             paint.setAlpha((int) (50 + 80 * z));
-            c.drawLines(batch[layer], 0, batched[layer], paint);
+            float[] drops = batch[layer];
+            for (int o = 0; o < batched[layer]; o += 3) {
+                c.drawRect(drops[o] - half, drops[o + 1] - drops[o + 2], drops[o] + half, drops[o + 1], paint);
+            }
         }
+        c.restore();
         splashes(c, dt);
         runners(c, dt, storm);
         drips(c, dt, h);
@@ -467,7 +449,8 @@ public final class SeasonView extends View {
     }
 
     private void splashes(Canvas c, float dt) {
-        int fresh = 0, fading = 0;
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xFFE1ECFF);
         for (int s = 0; s < SPLASHES; s++) {
             if (sLife[s] <= 0f) continue;
             sLife[s] -= dt;
@@ -475,26 +458,8 @@ public final class SeasonView extends View {
             sVy[s] += 900f * d * dt;
             sX[s] += sVx[s] * dt;
             sY[s] += sVy[s] * dt;
-            // Fresh droplets bright, the last moments of each dimmer: two calls in all.
-            if (sLife[s] > 0.12f) {
-                splashFresh[fresh++] = sX[s];
-                splashFresh[fresh++] = sY[s];
-            } else {
-                splashFading[fading++] = sX[s];
-                splashFading[fading++] = sY[s];
-            }
-        }
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeCap(Paint.Cap.ROUND);
-        paint.setStrokeWidth(2.2f * d);
-        paint.setColor(0xFFE1ECFF);
-        if (fresh > 0) {
-            paint.setAlpha(150);
-            c.drawPoints(splashFresh, 0, fresh, paint);
-        }
-        if (fading > 0) {
-            paint.setAlpha(70);
-            c.drawPoints(splashFading, 0, fading, paint);
+            paint.setAlpha((int) (150 * Math.min(1f, sLife[s] / 0.15f)));
+            c.drawCircle(sX[s], sY[s], 1.1f * d, paint);
         }
     }
 
@@ -527,13 +492,12 @@ public final class SeasonView extends View {
                 hang(rBox[j], rX[j], rR[j]);
                 continue;
             }
-            if (rY[j] - rTop[j] > d) {
-                paint.setStyle(Paint.Style.STROKE);
-                paint.setStrokeCap(Paint.Cap.ROUND);
+            if (rY[j] - rTop[j] > d) {   // the wet trail above it: a thin rectangle down to the bead
+                paint.setStyle(Paint.Style.FILL);
                 paint.setColor(WATER);
                 paint.setAlpha(84);
-                paint.setStrokeWidth(rR[j] * 0.9f);
-                c.drawLine(base, t + rTop[j], x, t + rY[j] - rR[j], paint);
+                float half = rR[j] * 0.45f;
+                c.drawRect(base - half, t + rTop[j], base + half, t + rY[j] - rR[j] * 0.5f, paint);
             }
             drawBead(c, x, t + rY[j], rR[j], 1f);
         }
