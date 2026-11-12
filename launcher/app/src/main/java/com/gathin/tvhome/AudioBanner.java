@@ -27,9 +27,9 @@ import android.widget.TextView;
  * Headphones or a speaker connecting, over any app: Home's round headphones button unfolds where it stands into a
  * capsule of its own glass, the device's name and "Connected" with the battery beside its glyph, and folds back into
  * the button four seconds later. The glyph never moves; the capsule grows from the button towards the middle of the
- * screen. Over another app it unfolds where that button sits on Home, on a dark base so the words read over a bright
- * picture, and fades as it folds away. Needs the overlay permission (build-and-install grants it with appops);
- * without it nothing is shown. Never focusable.
+ * screen, over the menus' dark scrim so its words read on a bright poster, and the top bar's buttons it covers step
+ * aside meanwhile. Over another app it unfolds where that button sits on Home and fades as it folds away. Needs the
+ * overlay permission (build-and-install grants it with appops); without it nothing is shown. Never focusable.
  */
 final class AudioBanner {
 
@@ -37,6 +37,8 @@ final class AudioBanner {
     private static Pill shownPill;
     /** Gives Home's button back its look once the capsule over it is gone; null when it was not hidden. */
     private static Runnable giveBack;
+    /** Brings back the top bar's buttons the open capsule covered (Search, Wi-Fi); null when none were. */
+    private static Runnable uncover;
     /** Home's headphones button while Home is in front (MainActivity), else null. */
     private static java.lang.ref.WeakReference<View> button;
     /** Where that button was last seen on the screen: the capsule unfolds there over another app. */
@@ -83,10 +85,10 @@ final class AudioBanner {
         // Towards the middle of the screen: from the top bar's right end it grows to the left.
         boolean towardsLeft = from.centerX() > screen.widthPixels / 2;
         boolean focused = home != null && home.isFocused();
-        int ink = focused ? 0xFF111111 : 0xFFFFFFFF, dim = focused ? 0x99111111 : 0x99FFFFFF;
+        int ink = focused ? 0xFF111111 : 0xFFFFFFFF, dim = focused ? 0xB3111111 : 0xCCFFFFFF;
         int bw = from.width(), bh = from.height();
 
-        Pill pill = new Pill(ctx, bw, towardsLeft, home == null, glass(ctx, focused, bh), home == null ? base(bh) : null);
+        Pill pill = new Pill(ctx, bw, towardsLeft, home == null, glass(ctx, focused, bh), focused ? null : base(bh));
 
         // The glyph exactly where the button has it: centred in the button's square at the capsule's end. A focused
         // button is drawn a little larger, and so is everything here.
@@ -168,6 +170,8 @@ final class AudioBanner {
                     float was = home.getAlpha();
                     home.setAlpha(0f);
                     giveBack = () -> home.setAlpha(was);
+                    cover(home, towardsLeft ? from.right - pill.getWidth() : from.left,
+                            towardsLeft ? from.right : from.left + pill.getWidth(), motion);
                 }
                 pill.run(motion, true, null);
                 return true;
@@ -180,9 +184,12 @@ final class AudioBanner {
         }
         shown = room;
         shownPill = pill;
-        room.postDelayed(() -> pill.run(motion, false, () -> {
-            if (shown == room) removeShown(wm);
-        }), HOLD_MS);
+        room.postDelayed(() -> {
+            uncover(motion);   // the buttons come back as it folds away from them
+            pill.run(motion, false, () -> {
+                if (shown == room) removeShown(wm);
+            });
+        }, HOLD_MS);
     }
 
     /** Takes the capsule off the screen now and gives Home's button back. */
@@ -197,6 +204,51 @@ final class AudioBanner {
             giveBack.run();
             giveBack = null;
         }
+        uncover(FromButton.NONE);
+    }
+
+    /**
+     * Hides the top bar's other buttons the open capsule will lie over (screen x from `left` to `right`): through its
+     * glass, «Пошук» and the Wi-Fi glyph showed under the device's name and its «Підключено».
+     */
+    private static void cover(View home, int left, int right, int motion) {
+        if (!(home.getParent() instanceof android.view.ViewGroup)) return;
+        android.view.ViewGroup bar = (android.view.ViewGroup) home.getParent();
+        java.util.List<View> hidden = new java.util.ArrayList<>();
+        java.util.List<Float> was = new java.util.ArrayList<>();
+        for (int i = 0; i < bar.getChildCount(); i++) {
+            View b = bar.getChildAt(i);
+            if (b == home || b.getVisibility() != View.VISIBLE || b.getAlpha() == 0f) continue;
+            Rect r = FromButton.bounds(b);
+            if (r.right <= left || r.left >= right) continue;
+            hidden.add(b);
+            was.add(b.getAlpha());
+            b.animate().cancel();
+            if (motion == FromButton.NONE) b.setAlpha(0f);
+            else b.animate().alpha(0f).setDuration(140).start();
+        }
+        if (hidden.isEmpty()) return;
+        uncover = () -> {
+            for (int i = 0; i < hidden.size(); i++) {
+                View b = hidden.get(i);
+                b.animate().cancel();
+                b.setAlpha(was.get(i));
+            }
+        };
+        uncoverFade = () -> {
+            for (int i = 0; i < hidden.size(); i++) hidden.get(i).animate().alpha(was.get(i)).setDuration(220).start();
+        };
+    }
+
+    /** The same back, at once or (motion) with a short fade. */
+    private static Runnable uncoverFade;
+
+    private static void uncover(int motion) {
+        Runnable now = uncover, fade = uncoverFade;
+        uncover = null;
+        uncoverFade = null;
+        if (motion != FromButton.NONE && fade != null) fade.run();
+        else if (now != null) now.run();
     }
 
     /** The button's own glass (icon_button_bg), focused or not, rounded to a capsule of this height. */
@@ -208,10 +260,13 @@ final class AudioBanner {
         return g;
     }
 
-    /** Over another app: a dark capsule under the glass, so the words read over a bright picture. */
+    /**
+     * A dark capsule under the glass, the menus' own scrim (glass_panel): the words read over a bright poster or
+     * another app's picture. Over Home's button it comes in as the capsule opens, so its first frame is the button.
+     */
     private static Drawable base(int height) {
         GradientDrawable g = new GradientDrawable();
-        g.setColor(0xD91C1C1E);
+        g.setColor(0xD914161A);
         g.setCornerRadius(height / 2f);
         return g;
     }
@@ -280,6 +335,7 @@ final class AudioBanner {
             edges.set(Math.round(s[0]), 0, Math.round(s[1]), getHeight());
             if (base != null) {
                 base.setBounds(edges);
+                base.setAlpha(alone ? 255 : (int) (255 * Math.max(0f, Math.min(1f, open))));
                 base.draw(c);
             }
             glass.setBounds(edges);
