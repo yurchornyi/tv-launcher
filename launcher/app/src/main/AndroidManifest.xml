@@ -22,6 +22,9 @@
     <!-- Android 12+: without it USER_ACTION_NOT_REQUIRED is ignored and every self-update asks (Updater.silent). -->
     <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- The network menu joins a saved Wi-Fi network on Android 9 and older (MainActivity.joinNetwork); a normal
+         permission, granted at install. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <!-- The full-screen player keeps the screen on, with no screensaver, while it is up (MainActivity.holdScreen). -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Home stays alive in the background (HomeKeeper): TCL force-stops a cached launcher once a minute. -->

@@ -1228,7 +1228,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             loadProfilePhoto();
         }
         btnInputs.setOnClickListener(v -> showInputs());
-        btnWifi.setOnClickListener(v -> openNetworkPill());
+        btnWifi.setOnClickListener(v -> showNetworkMenu());
         btnWifi.setOnLongClickListener(v -> {
             open(systemIntent(Settings.ACTION_WIFI_SETTINGS));
             return true;
@@ -5047,11 +5047,135 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         return 0xFF000000 | (r << 16) | (g << 8) | b;
     }
 
-    /** The network pill opens the VPN app when one is configured and installed, otherwise Wi-Fi settings. */
-    private void openNetworkPill() {
-        Intent i = vpnApp.isEmpty() ? null : getPackageManager().getLeanbackLaunchIntentForPackage(vpnApp);
-        if (i == null && !vpnApp.isEmpty()) i = getPackageManager().getLaunchIntentForPackage(vpnApp);
-        open(i != null ? i : systemIntent(Settings.ACTION_WIFI_SETTINGS));
+    /**
+     * The network button's menu: the network the TV is on, the Wi-Fi networks around it (strongest first, a lock
+     * where one needs a password), the VPN app when one is set up, and all of the TV's networks. Choosing a network
+     * joins it where the launcher may: Android 9 and older connect to a saved one at once; from Android 10 only the
+     * system switches networks, so its own list opens, the network named, one OK away.
+     */
+    private void showNetworkMenu() {
+        View panel = getLayoutInflater().inflate(R.layout.popup_inputs, root, false);
+        LinearLayout rows = panel.findViewById(R.id.rows);
+        PopupWindow popup = glassPopup(panel, (int) (320 * density));
+        WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+        String current = null;
+        boolean ethernet = false, online = false;
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            for (Network net : cm != null ? cm.getAllNetworks() : new Network[0]) {
+                NetworkCapabilities caps = cm.getNetworkCapabilities(net);
+                if (caps == null || caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+                        || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) continue;
+                online = true;
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) ethernet = true;
+            }
+            WifiInfo info = wm != null && !ethernet ? wm.getConnectionInfo() : null;
+            if (info != null && info.getNetworkId() != -1) current = ssid(info.getSSID());
+        } catch (RuntimeException ignored) {
+        }
+        Runnable all = () -> open(systemIntent(Settings.ACTION_WIFI_SETTINGS));
+        // Where the TV is now.
+        String here = ethernet ? getString(R.string.ethernet) : current != null ? current
+                : getString(online ? R.string.wifi : R.string.offline);
+        addNetworkRow(rows, popup, ethernet ? R.drawable.ic_ethernet : R.drawable.ic_wifi, here,
+                online ? getString(R.string.connected) : "", online, all);
+        // Around it: the strongest of each name, the one it is on left out, at most six.
+        List<android.net.wifi.ScanResult> around = new ArrayList<>();
+        try {
+            if (wm != null) {
+                wm.startScan();   // fresher next time; Android limits how often, and the last scan is shown now
+                List<android.net.wifi.ScanResult> found = wm.getScanResults();
+                if (found != null) around.addAll(found);
+            }
+        } catch (RuntimeException ignored) {   // no location permission: only the rows below
+        }
+        around.sort((a, b) -> Integer.compare(b.level, a.level));
+        Set<String> seen = new HashSet<>();
+        if (current != null) seen.add(current);
+        int listed = 0;
+        for (android.net.wifi.ScanResult r : around) {
+            String name = ssid(r.SSID);
+            if (name == null || !seen.add(name)) continue;
+            if (listed++ == 0) addSeparator(rows);
+            boolean open = !r.capabilities.contains("WEP") && !r.capabilities.contains("PSK")
+                    && !r.capabilities.contains("SAE") && !r.capabilities.contains("EAP");
+            int level = WifiManager.calculateSignalLevel(r.level, 4);
+            String signal = getString(level >= 3 ? R.string.signal_strong : level == 2 ? R.string.signal_good
+                    : R.string.signal_weak);
+            addNetworkRow(rows, popup, open ? R.drawable.ic_wifi : R.drawable.ic_lock, name,
+                    open ? getString(R.string.network_open) + " · " + signal : signal, false, () -> joinNetwork(name));
+            if (listed == 6) break;
+        }
+        addSeparator(rows);
+        // The VPN app, which this button used to open by itself.
+        Intent vpn = vpnApp.isEmpty() ? null : getPackageManager().getLeanbackLaunchIntentForPackage(vpnApp);
+        if (vpn == null && !vpnApp.isEmpty()) vpn = getPackageManager().getLaunchIntentForPackage(vpnApp);
+        if (vpn != null) {
+            Intent app = vpn;
+            addNetworkRow(rows, popup, R.drawable.ic_lock, getString(R.string.vpn) + " · " + appLabel(vpnApp),
+                    vpnCountry.isEmpty() ? "" : vpnCountry, false, () -> open(app));
+        }
+        addSettingsMenuRow(rows, popup, R.string.network_all, all);
+        panel.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+        popup.setWidth(Math.max((int) (320 * density), panel.getMeasuredWidth()));
+        dropIn(popup, panel, btnWifi, getResources().getBoolean(R.bool.rtl_menu_bar) ? Gravity.START : Gravity.END);
+        rows.getChildAt(0).requestFocus();
+    }
+
+    /** A network's name as Android quotes it, or null for a hidden or unknown one. */
+    private static String ssid(String raw) {
+        if (raw == null) return null;
+        String s = raw.replace("\"", "").trim();
+        return s.isEmpty() || s.contains("unknown ssid") || s.equals("0x") ? null : s;
+    }
+
+    /** One network row: its glyph, name and a word on its state; `on`: the green dot of the network in use. */
+    private void addNetworkRow(LinearLayout rows, PopupWindow popup, int icon, String title, String status, boolean on,
+                               Runnable action) {
+        View row = getLayoutInflater().inflate(R.layout.item_input, rows, false);
+        ((ImageView) row.findViewById(R.id.icon)).setImageResource(icon);
+        ((TextView) row.findViewById(R.id.title)).setText(title);
+        TextView st = row.findViewById(R.id.status);
+        st.setText(status);
+        st.setVisibility(status.isEmpty() ? View.GONE : View.VISIBLE);
+        row.findViewById(R.id.dot).setVisibility(on ? View.VISIBLE : View.GONE);
+        row.setOnClickListener(v -> {
+            popup.dismiss();
+            action.run();
+        });
+        rows.addView(row);
+    }
+
+    /** Joins a network chosen in the menu, or brings the TV's own list up with it named (see showNetworkMenu). */
+    @SuppressWarnings("deprecation")
+    private void joinNetwork(String name) {
+        if (Build.VERSION.SDK_INT < 29) {
+            try {
+                WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+                List<android.net.wifi.WifiConfiguration> saved = wm != null ? wm.getConfiguredNetworks() : null;
+                if (saved != null) {
+                    for (android.net.wifi.WifiConfiguration c : saved) {
+                        if (!name.equals(ssid(c.SSID)) || !wm.enableNetwork(c.networkId, true)) continue;
+                        wm.reconnect();
+                        Toast.makeText(this, getString(R.string.network_joining, name), Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                }
+            } catch (RuntimeException ignored) {   // a TV that keeps the list to itself: its own screen below
+            }
+        }
+        Toast.makeText(this, getString(R.string.network_choose, name), Toast.LENGTH_LONG).show();
+        open(systemIntent(Settings.ACTION_WIFI_SETTINGS));
+    }
+
+    /** An installed app's name, or its package when it has none to give. */
+    private String appLabel(String pkg) {
+        try {
+            android.content.pm.PackageManager pm = getPackageManager();
+            return String.valueOf(pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)));
+        } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+            return pkg;
+        }
     }
 
 
