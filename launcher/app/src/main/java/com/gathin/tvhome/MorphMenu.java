@@ -45,10 +45,11 @@ final class MorphMenu {
     private boolean over;
 
     /**
-     * `panel` (popup_inputs: the rows) goes below a header band as tall as the button; `atEnd`: the button stands at
-     * the menu's right end (it opens towards the left), else at its left end.
+     * `panel` (popup_inputs: the rows) goes below a header band as tall as the button, `title` across it (null: the
+     * button's own name); `atEnd`: the button stands at the menu's right end (it opens towards the left), else at
+     * its left end.
      */
-    MorphMenu(Context ctx, View anchor, View panel, boolean atEnd, int motion) {
+    MorphMenu(Context ctx, View anchor, View panel, CharSequence heading, boolean atEnd, int motion) {
         this.anchor = anchor;
         this.panel = panel;
         this.motion = motion;
@@ -61,7 +62,7 @@ final class MorphMenu {
                 ViewGroup.LayoutParams.MATCH_PARENT));
         // The button's name across the top of the card, the glyph's corner left free.
         title = new TextView(ctx);
-        title.setText(name(anchor));
+        title.setText(heading != null ? heading : name(anchor));
         title.setTextColor(0xF2FFFFFF);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
         title.setTypeface(ctx.getResources().getFont(R.font.outfit_medium));

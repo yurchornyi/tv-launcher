@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A row's state word («Підключено», a network's signal): nearly white, so a projector's washed-out dark still
-     shows it (at 70% the owner could not read it on the XGIMI). -->
+<!-- A row's state word («Підключено», a network's signal): nearly white on the glass, a solid dark grey on a focused
+     row's white. The owner could not read it on the XGIMI: thin, and pale grey on the white of the first row, the one
+     focused when a menu opens. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_focused="true" android:color="#CC111111" />
+    <item android:state_focused="true" android:color="#FF2C2C2E" />
     <item android:color="#E6FFFFFF" />
 </selector>
