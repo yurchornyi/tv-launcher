@@ -5081,13 +5081,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 online ? getString(R.string.connected) : "", online, all);
         // Around it: the strongest of each name, the one it is on left out, at most six.
         List<android.net.wifi.ScanResult> around = new ArrayList<>();
-        try {
-            if (wm != null) {
+        // Android shows the networks around only to an app with the location permission (asked for the weather).
+        if (wm != null && checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            try {
                 wm.startScan();   // fresher next time; Android limits how often, and the last scan is shown now
                 List<android.net.wifi.ScanResult> found = wm.getScanResults();
                 if (found != null) around.addAll(found);
+            } catch (SecurityException ignored) {   // location turned off on the TV: only the rows below
             }
-        } catch (RuntimeException ignored) {   // no location permission: only the rows below
         }
         around.sort((a, b) -> Integer.compare(b.level, a.level));
         Set<String> seen = new HashSet<>();
