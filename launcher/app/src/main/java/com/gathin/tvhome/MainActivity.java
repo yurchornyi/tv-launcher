@@ -2375,11 +2375,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         return true;
     }
 
-    /** The same TMDB picture (its file name), whatever size or address it was asked at. */
+    /** The same picture, whatever size or address it was asked at (ChannelFeed.pictureKey). */
     private static boolean samePicture(String a, String b) {
-        if (a == null || b == null) return false;
-        String fa = a.substring(a.lastIndexOf('/') + 1), fb = b.substring(b.lastIndexOf('/') + 1);
-        return fa.length() > 8 && fa.equals(fb);
+        String ka = ChannelFeed.pictureKey(a);
+        return ka != null && ka.equals(ChannelFeed.pictureKey(b));
     }
 
     /**
