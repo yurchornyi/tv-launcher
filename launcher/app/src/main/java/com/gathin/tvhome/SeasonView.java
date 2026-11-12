@@ -87,6 +87,16 @@ public final class SeasonView extends View {
 
     /** Snow settled on each box's top edge, by id. */
     private final float[] cap = new float[IDS];
+
+    /**
+     * Rain, snow and splashes go out in a few batches (drawLines, drawPoints), one per depth layer, not one call per
+     * drop: a hundred and thirty lines each with its own width and alpha made issuing the frame's commands the slow
+     * part of Home on the XGIMI. LAYERS layers for rain, FLAKES for snow; the pieces are filled in, then drawn.
+     */
+    private static final int LAYERS = 3, FLAKES = 4;
+    private final float[][] batch = new float[Math.max(LAYERS, FLAKES)][0];
+    private final int[] batched = new int[Math.max(LAYERS, FLAKES)];
+    private final float[] splashFresh = new float[SPLASHES * 2], splashFading = new float[SPLASHES * 2];
     private float flashT = -1f, flashDue;
 
     public SeasonView(Context context) {
@@ -203,6 +213,7 @@ public final class SeasonView extends View {
     private void seed(int w, int h) {
         n = Season.count(scene, heavy);
         if (px.length < n) grow(n);
+        for (int k = 0; k < batch.length; k++) if (batch[k].length < n * 4) batch[k] = new float[n * 4];
         for (int i = 0; i < n; i++) spawn(i, w, h, true);
         flashT = -1f;
         flashDue = 4f + rnd.nextFloat() * 6f;
@@ -269,6 +280,7 @@ public final class SeasonView extends View {
     private void fall(Canvas c, float dt, int w, int h) {
         float wind = (scene == Season.Scene.SNOW ? 8f : scene == Season.Scene.LEAVES ? 14f : 6f) * d;
         boolean snow = scene == Season.Scene.SNOW, flies = scene == Season.Scene.FIREFLIES;
+        Arrays.fill(batched, 0);
         for (int i = 0; i < n; i++) {
             if (restLeft[i] > 0f) {
                 restLeft[i] -= dt;
@@ -315,13 +327,25 @@ public final class SeasonView extends View {
             }
             if (px[i] > w + 40f * d) px[i] -= w + 80f * d;
             if (snow) {
-                paint.setStyle(Paint.Style.FILL);
-                paint.setColor(0xFFFFFFFF);
-                paint.setAlpha((int) (90 + 150 * depth[i]));
-                c.drawCircle(x, y, size[i], paint);
+                int layer = Math.min(FLAKES - 1, (int) (depth[i] * FLAKES));
+                float[] points = batch[layer];
+                points[batched[layer]++] = x;
+                points[batched[layer]++] = y;
             } else {
                 drawPiece(c, i, x, y, 1f, false);
             }
+        }
+        if (!snow) return;
+        // Each layer's flakes as round points of its size and brightness, in one call.
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setColor(0xFFFFFFFF);
+        for (int layer = 0; layer < FLAKES; layer++) {
+            if (batched[layer] == 0) continue;
+            float z = (layer + 0.5f) / FLAKES;
+            paint.setStrokeWidth(2f * (1.4f + 3.2f * z) * d);
+            paint.setAlpha((int) (90 + 150 * z));
+            c.drawPoints(batch[layer], 0, batched[layer], paint);
         }
     }
 
@@ -386,9 +410,7 @@ public final class SeasonView extends View {
         boolean storm = scene == Season.Scene.STORM;
         float slant = slant();
         float k = 1f / (float) Math.sqrt(1 + slant * slant);
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeCap(Paint.Cap.ROUND);
-        paint.setColor(WATER);
+        Arrays.fill(batched, 0);
         for (int i = 0; i < n; i++) {
             float before = py[i];
             py[i] += vy[i] * dt;
@@ -404,9 +426,25 @@ public final class SeasonView extends View {
                 continue;
             }
             float len = size[i] * k;
-            paint.setStrokeWidth((0.9f + 0.9f * depth[i]) * d);
-            paint.setAlpha((int) (50 + 80 * depth[i]));
-            c.drawLine(px[i] - slant * len, py[i] - len, px[i], py[i], paint);
+            int layer = Math.min(LAYERS - 1, (int) (depth[i] * LAYERS));
+            float[] lines = batch[layer];
+            int o = batched[layer];
+            lines[o] = px[i] - slant * len;
+            lines[o + 1] = py[i] - len;
+            lines[o + 2] = px[i];
+            lines[o + 3] = py[i];
+            batched[layer] = o + 4;
+        }
+        // Far drops thin and faint, near ones wider and brighter: one call per layer.
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setColor(WATER);
+        for (int layer = 0; layer < LAYERS; layer++) {
+            if (batched[layer] == 0) continue;
+            float z = (layer + 0.5f) / LAYERS;
+            paint.setStrokeWidth((0.9f + 0.9f * z) * d);
+            paint.setAlpha((int) (50 + 80 * z));
+            c.drawLines(batch[layer], 0, batched[layer], paint);
         }
         splashes(c, dt);
         runners(c, dt, storm);
@@ -429,8 +467,7 @@ public final class SeasonView extends View {
     }
 
     private void splashes(Canvas c, float dt) {
-        paint.setStyle(Paint.Style.FILL);
-        paint.setColor(0xFFE1ECFF);
+        int fresh = 0, fading = 0;
         for (int s = 0; s < SPLASHES; s++) {
             if (sLife[s] <= 0f) continue;
             sLife[s] -= dt;
@@ -438,8 +475,26 @@ public final class SeasonView extends View {
             sVy[s] += 900f * d * dt;
             sX[s] += sVx[s] * dt;
             sY[s] += sVy[s] * dt;
-            paint.setAlpha((int) (150 * Math.min(1f, sLife[s] / 0.15f)));
-            c.drawCircle(sX[s], sY[s], 1.1f * d, paint);
+            // Fresh droplets bright, the last moments of each dimmer: two calls in all.
+            if (sLife[s] > 0.12f) {
+                splashFresh[fresh++] = sX[s];
+                splashFresh[fresh++] = sY[s];
+            } else {
+                splashFading[fading++] = sX[s];
+                splashFading[fading++] = sY[s];
+            }
+        }
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setStrokeWidth(2.2f * d);
+        paint.setColor(0xFFE1ECFF);
+        if (fresh > 0) {
+            paint.setAlpha(150);
+            c.drawPoints(splashFresh, 0, fresh, paint);
+        }
+        if (fading > 0) {
+            paint.setAlpha(70);
+            c.drawPoints(splashFading, 0, fading, paint);
         }
     }
 
