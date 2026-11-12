@@ -980,6 +980,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         hiddenApps = new HashSet<>(cfg.hiddenApps);
 
         grid = findViewById(R.id.grid);
+        // Over the tiles and the shelf, under the full-screen player and what opens over Home.
+        season = new SeasonView(this);
+        season.setTiles(this::seasonBoxes);
+        root.addView(season, root.indexOfChild(ambientScreen), new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         rtlAppGrid = getResources().getBoolean(R.bool.rtl_app_grid);
         // Mirror only the app grid; the header and other locales keep their own layouts.
         grid.setLayoutManager(new GridLayoutManager(this, COLUMNS) {
@@ -1381,6 +1386,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (pendingSearch != null) handler.post(this::runPendingSearch);
         nowPlaying.start();
         nowPlaying.stopPaused();   // a film or song left paused must not wake on the headphones' Play
+        lastKeyAt = SystemClock.uptimeMillis();
+        handler.removeCallbacks(seasonCheck);
+        handler.postDelayed(seasonCheck, SEASON_IDLE_MS);
         AudioDevices.addListener(audioListener);
         AudioDevices.refresh(this);
         updateAudioButton();
@@ -1556,6 +1564,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     protected void onPause() {
         super.onPause();
         homeInFront = false;
+        handler.removeCallbacks(seasonCheck);
+        if (season != null) season.stop(false);
         AudioBanner.from(null);
         endReorder();   // Home or another app while reordering keeps the order so far
         Backup.exportLater(this);
@@ -1605,6 +1615,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+        // A menu, a dialog or the screensaver over Home: the scene stops; back on Home it comes after the idle wait.
+        handler.removeCallbacks(seasonCheck);
+        if (!hasFocus && season != null) season.stop(true);
+        else if (hasFocus) {
+            lastKeyAt = SystemClock.uptimeMillis();   // keys in a closing menu never reached Home's dispatchKeyEvent
+            handler.postDelayed(seasonCheck, SEASON_IDLE_MS);
+        }
         if (hasFocus) {
             if (libraryFocusPending && appLibrary == null) focusLibrary();
             showCardPrompt();
@@ -1691,6 +1708,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         lastKeyAt = SystemClock.uptimeMillis();
+        if (season != null && event.getAction() == KeyEvent.ACTION_DOWN) {
+            if (season.running()) season.stop(true);   // the first key takes it away, and does what it does
+            handler.removeCallbacks(seasonCheck);
+            handler.postDelayed(seasonCheck, SEASON_IDLE_MS);
+        }
         if (ambientScreen.getVisibility() == View.VISIBLE && !ambientHiding) {
             // The full-screen player: its buttons take the arrows and OK, the media keys work from anywhere, Back
             // (or Home) brings Home back. The buttons rest out of sight after a few seconds; the first key that
@@ -5231,6 +5253,90 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         // The divider only separates two things: it shows when the clock is there too.
         findViewById(R.id.topDivider).setVisibility(shown && findViewById(R.id.topClock).getVisibility() == View.VISIBLE
                 ? View.VISIBLE : View.GONE);
+        if (season != null && season.running()) startSeason();   // it began to rain or snow meanwhile
+    }
+
+    // ---- seasons and weather over an idle Home (SeasonView) ------------------------------------------------------
+
+    /** Nothing pressed this long: the scene comes. */
+    private static final long SEASON_IDLE_MS = 4000;
+    /** Home left on its own this long: the scene goes until the next key, so the GPU rests (and the projector). */
+    private static final long SEASON_MAX_MS = 3 * 60_000L;
+    private SeasonView season;
+    private long seasonSince;
+    private final int[] seasonAt = new int[2], seasonOrigin = new int[2];
+    private final Runnable seasonCheck = this::seasonCheck;
+
+    private void seasonCheck() {
+        handler.removeCallbacks(seasonCheck);
+        if (season == null) return;
+        if (!seasonAllowed()) {
+            season.stop(true);
+            return;   // a key, Home's focus or onResume asks again
+        }
+        long now = SystemClock.uptimeMillis(), idle = now - lastKeyAt;
+        if (idle < SEASON_IDLE_MS) {
+            handler.postDelayed(seasonCheck, SEASON_IDLE_MS - idle);
+            return;
+        }
+        if (!season.running()) {
+            seasonSince = now;
+            startSeason();
+        }
+        long left = SEASON_MAX_MS - (now - seasonSince);
+        if (left <= 0) season.stop(true);
+        else handler.postDelayed(seasonCheck, left);
+    }
+
+    private boolean seasonAllowed() {
+        return animations && !reducedMotion && homeInFront && hasWindowFocus() && !searching && !reordering
+                && ambientScreen.getVisibility() != View.VISIBLE && Season.enabled(this) && !isFinishing();
+    }
+
+    /** The season's scene, or the weather's when it rains or snows outside (the top bar's reading). */
+    private void startSeason() {
+        int code = weather != null ? Season.code(weather.cached()) : -1;
+        season.start(Season.pick(LocalDate.now().getMonthValue(), code), Season.heavy(code));
+    }
+
+    /**
+     * What the scene's drops land on (SeasonView.Tiles): the app tiles on the screen, by adapter position, and the
+     * shelf's Watch or Continue pill, in the scene's coordinates. A tile scrolled out of the grid's window is left out.
+     */
+    private int seasonBoxes(float[] out) {
+        int n = 0;
+        season.getLocationInWindow(seasonOrigin);
+        View frame = (View) grid.getParent();
+        frame.getLocationInWindow(seasonAt);
+        float top = seasonAt[1] - seasonOrigin[1], bottom = top + frame.getHeight();
+        for (int i = 0; i < grid.getChildCount() && (n + 1) * 5 <= out.length; i++) {
+            View item = grid.getChildAt(i);
+            View card = item.findViewById(R.id.card);
+            int pos = grid.getChildAdapterPosition(item);
+            if (card == null || pos < 0 || pos >= SeasonView.PILL || !card.isShown() || card.getWidth() == 0) continue;
+            card.getLocationInWindow(seasonAt);
+            float l = seasonAt[0] - seasonOrigin[0], t = seasonAt[1] - seasonOrigin[1];
+            float b = t + card.getHeight() * card.getScaleY();
+            if (t < top - 4 * density || b > bottom + 40 * density) continue;   // under the top bar, or off the screen
+            n = box(out, n, pos, l, t, l + card.getWidth() * card.getScaleX(), b);
+        }
+        if (shelfOpen.getVisibility() == View.VISIBLE && shelfOpen.getAlpha() > 0.5f && shelfOpen.getWidth() > 0
+                && (n + 1) * 5 <= out.length) {
+            shelfOpen.getLocationInWindow(seasonAt);
+            float l = seasonAt[0] - seasonOrigin[0], t = seasonAt[1] - seasonOrigin[1];
+            n = box(out, n, SeasonView.PILL, l, t, l + shelfOpen.getWidth(), t + shelfOpen.getHeight());
+        }
+        return n;
+    }
+
+    private static int box(float[] out, int n, int id, float l, float t, float r, float b) {
+        int o = n * 5;
+        out[o] = id;
+        out[o + 1] = l;
+        out[o + 2] = t;
+        out[o + 3] = r;
+        out[o + 4] = b;
+        return n + 1;
     }
 
     /** The Live TV app's launch intent: its leanback entry point, or the configured action if it has none. */

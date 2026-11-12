@@ -112,6 +112,8 @@ public final class LauncherSettingsActivity extends Activity {
     private SharedPreferences choices;
     private int columns;
     private boolean animations, advancedEffects, reducedMotion, moduleCards, showInputs;
+    /** Snow, rain, leaves... over an idle Home (Season); a choice kept on this TV only. */
+    private boolean seasonScene;
     /** A setting changed: Home rebuilds when this screen closes. */
     private boolean changed;
     private Typeface medium, regular, light;
@@ -137,6 +139,7 @@ public final class LauncherSettingsActivity extends Activity {
         reducedMotion = config.reducedMotion;
         moduleCards = config.moduleCards;
         showInputs = config.showInputs;
+        seasonScene = Season.enabled(this);
         updater = new Updater(this, config.updateUrl, version -> {
             updateState = getString(R.string.update_to, version);
             refresh();
@@ -309,6 +312,13 @@ public final class LauncherSettingsActivity extends Activity {
         });
         adv.shown = () -> getString(advancedEffects ? R.string.on : R.string.off);
         adv.enabled = () -> animations;
+        // Home reads it each time it comes back: nothing to rebuild.
+        Row weather = row(list, getString(R.string.season_scene), getString(R.string.season_scene_hint), null, dir -> {
+            seasonScene = !seasonScene;
+            choices.edit().putBoolean(Season.KEY, seasonScene).apply();
+        });
+        weather.shown = () -> getString(seasonScene && animations && !reducedMotion ? R.string.on : R.string.off);
+        weather.enabled = () -> animations && !reducedMotion;
 
         section(list, R.string.settings_section_tv, false);
         Row sleep = row(list, getString(R.string.sleep_timer), getString(R.string.sleep_hint), null, this::stepSleep);

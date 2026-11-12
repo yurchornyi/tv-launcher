@@ -188,6 +188,8 @@
     <string name="inputs_button">Кнопка «Джерела»</string>
     <string name="inputs_button_hint">Кнопка «Джерела» вгорі головного екрана: HDMI, антена та інші входи. Вимкніть, якщо не перемикаєте джерела.</string>
     <string name="settings_section_motion">Рух</string>
+    <string name="season_scene">Погода й пори року</string>
+    <string name="season_scene_hint">Коли Home стоїть без руху, по екрану падає листя, сніг, дощ чи цвіт, а влітку світять світлячки: за порою року й погодою надворі. Краплі розбиваються об плитки, стікають по них і капають. Перше натискання прибирає.</string>
     <string name="settings_section_tv">Телевізор</string>
     <string name="settings_section_about">Про лаунчер</string>
     <string name="sleep_hint">Телевізор засне через вибрану кількість хвилин. За хвилину до цього з\'явиться картка, щоб продовжити. Змінюйте стрілками вліво і вправо.</string>
