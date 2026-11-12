@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A device's charge in a menu row: the outline and, clipped from the left, the fill (MainActivity.battery sets the
+     clip's level to the charge). Tinted with the row's text. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/ic_battery_outline" />
+    <item android:id="@+id/battery_fill">
+        <clip android:clipOrientation="horizontal" android:gravity="left"
+            android:drawable="@drawable/ic_battery_fill" />
+    </item>
+</layer-list>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A Wi-Fi network's signal in a menu row, 2 of 3 bars (tinted with the row's text). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="18dp" android:height="14dp"
+    android:viewportWidth="18" android:viewportHeight="14">
+    <path android:pathData="M1.5,9 h3 a0.8,0.8 0 0 1 0.8,0.8 v3.4 a0.8,0.8 0 0 1 -0.8,0.8 h-3 a0.8,0.8 0 0 1 -0.8,-0.8 v-3.4 a0.8,0.8 0 0 1 0.8,-0.8 z"
+        android:fillColor="#FFFFFFFF" android:fillAlpha="1" />
+    <path android:pathData="M7.5,5 h3 a0.8,0.8 0 0 1 0.8,0.8 v7.4 a0.8,0.8 0 0 1 -0.8,0.8 h-3 a0.8,0.8 0 0 1 -0.8,-0.8 v-7.4 a0.8,0.8 0 0 1 0.8,-0.8 z"
+        android:fillColor="#FFFFFFFF" android:fillAlpha="1" />
+    <path android:pathData="M13.5,1 h3 a0.8,0.8 0 0 1 0.8,0.8 v11.4 a0.8,0.8 0 0 1 -0.8,0.8 h-3 a0.8,0.8 0 0 1 -0.8,-0.8 v-11.4 a0.8,0.8 0 0 1 0.8,-0.8 z"
+        android:fillColor="#FFFFFFFF" android:fillAlpha="0.3" />
+</vector>
