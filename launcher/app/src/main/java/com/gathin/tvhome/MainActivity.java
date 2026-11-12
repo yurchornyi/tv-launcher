@@ -5759,7 +5759,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
      * start over the button without being cut off at the window's edge.
      */
     private void growFrom(PopupWindow popup, View panel, View anchor, int gravity, boolean above) {
-        // A top bar button (Wi-Fi, headphones, Settings, Inputs): the button itself unfolds into its menu.
+        // A top bar button (Wi-Fi, headphones, Settings, Inputs): a glass card spreads out from under it, below the row
+        // of buttons, which all stay where they are (MorphMenu).
         if (!above && popup instanceof FromButton.Popup && anchor.getParent() == findViewById(R.id.topButtons)
                 && anchor.getWidth() > 0) {
             int motion = FromButton.motion(animations, reducedMotion);
@@ -5772,8 +5773,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             popup.setContentView(morph.room());
             ((FromButton.Popup) popup).morph(panel, morph, motion);
             morph.open();
-            // The window's top at the button's top, its button end at the button's end.
-            popup.showAsDropDown(anchor, 0, -anchor.getHeight(), gravity);
+            // The window's top 10 dp under the button, its button end at the button's end.
+            popup.showAsDropDown(anchor, 0, (int) (10 * density), gravity);
             return;
         }
         int gap = (int) (10 * density);
