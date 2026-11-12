@@ -12,10 +12,11 @@ import android.view.ViewTreeObserver;
 import android.widget.PopupWindow;
 
 /**
- * A menu or banner that belongs to a button comes out of it, as tvOS and iOS open theirs: it starts as small as the
- * button and over it, then springs to its own size and place while it fades in. Closing runs the same way back, into
- * the button. The window that shows it must take in the button too, or the start is cut off (MainActivity.growFrom,
- * AudioBanner). Only scale, position and alpha move: cheap even on the XGIMI's GPU.
+ * A menu that belongs to a button comes out of it, as tvOS and iOS open theirs: in its own place and shape, it springs
+ * up from a smaller size, growing from the point nearest the button, while it fades in. Closing shrinks it a little
+ * towards the button as it fades. The window that shows it takes in the button too (MainActivity.growFrom). Only scale
+ * and alpha move: cheap even on the XGIMI's GPU. The headphones banner unfolds out of its button its own way
+ * (AudioBanner) with the same springs.
  */
 final class FromButton {
 
@@ -30,15 +31,25 @@ final class FromButton {
      * Apple's springs, as UIKit and SwiftUI name them: opening swings out in 0.4 s and is damped to 0.8, so it runs a
      * hair past its size and place (about 1.5%) and settles; closing is critically damped and quicker, no bounce.
      */
-    private static final Spring OPEN = new Spring(0.40f, 0.80f);
-    private static final Spring CLOSE = new Spring(0.28f, 1f);
+    static final Spring OPEN = new Spring(0.40f, 0.80f);
+    static final Spring CLOSE = new Spring(0.28f, 1f);
     /** Closing is over once it has faded: the last few percent of its way into the button go unseen. */
     private static final float CLOSE_S = 0.24f, CLOSE_FADE_S = 0.20f;
-    /** The picture is all there this soon after it starts out of the button: its squeezed first frames go unseen. */
+    /** The picture is all there this soon after it starts out of the button: its smallest first frames go unseen. */
     private static final float OPEN_FADE_S = 0.12f;
     private static final long FADE_MS = 160;
+    /** How large it starts (and how small it closes to), the same in width and height: never squeezed. */
+    private static final float OPEN_SCALE = 0.6f, CLOSE_SCALE = 0.85f;
 
     private FromButton() { }
+
+    /**
+     * Along one axis, where in a panel `size` long starting at `start` (screen) it grows from: across from the button's
+     * centre, or the panel's nearer end when the button lies beyond it (a menu hanging under its button).
+     */
+    static float pivot(float buttonCentre, float start, int size) {
+        return Math.max(0f, Math.min(size, buttonCentre - start));
+    }
 
     static int motion(boolean animations, boolean reducedMotion) {
         return !animations ? NONE : reducedMotion ? FADE : FULL;
@@ -77,23 +88,24 @@ final class FromButton {
     private static void run(View panel, Rect button, int motion, boolean open, Runnable end) {
         Object running = panel.getTag(R.id.from_button_anim);
         if (running instanceof Animator) ((Animator) running).cancel();
-        // The button's state: the panel's centre on the button's, its size the button's.
-        float dx = 0, dy = 0, sx = 1, sy = 1;
+        // It keeps its own shape and place and grows from the point of its edge nearest the button: squeezed to the
+        // button's square and flown in from the button's centre, a tall menu (Settings) came in stretched and askew.
+        float dx = 0, dy = 0, s = 1;
         int w = panel.getWidth(), h = panel.getHeight();
+        float px = w / 2f, py = h / 2f;
         if (motion == FULL && button != null && w > 0 && h > 0) {
             int[] at = placeOnScreen(panel);
-            dx = button.exactCenterX() - (at[0] + w / 2f);
-            dy = button.exactCenterY() - (at[1] + h / 2f);
-            sx = Math.max(0.08f, Math.min(1f, button.width() / (float) w));
-            sy = Math.max(0.08f, Math.min(1f, button.height() / (float) h));
+            px = pivot(button.exactCenterX(), at[0], w);
+            py = pivot(button.exactCenterY(), at[1], h);
+            s = open ? OPEN_SCALE : CLOSE_SCALE;
         }
-        panel.setPivotX(w / 2f);
-        panel.setPivotY(h / 2f);
+        panel.setPivotX(px);
+        panel.setPivotY(py);
         // Closing starts from wherever the panel is now: a menu shut while still opening turns back from there.
-        final float[] from = open ? new float[]{dx, dy, sx, sy, 0f}
+        final float[] from = open ? new float[]{dx, dy, s, s, 0f}
                 : new float[]{panel.getTranslationX(), panel.getTranslationY(), panel.getScaleX(), panel.getScaleY(),
                         panel.getAlpha()};
-        final float[] to = open ? new float[]{0f, 0f, 1f, 1f, 1f} : new float[]{dx, dy, sx, sy, 0f};
+        final float[] to = open ? new float[]{0f, 0f, 1f, 1f, 1f} : new float[]{dx, dy, s, s, 0f};
         float seconds = motion == FADE ? FADE_MS / 1000f : open ? OPEN.settle : CLOSE_S;
         ValueAnimator a = ValueAnimator.ofFloat(0f, seconds);
         a.setDuration(Math.round(seconds * 1000));

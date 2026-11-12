@@ -155,6 +155,16 @@ final class NowPlaying {
     }
 
     /**
+     * Whether the card takes the shelf over the dock tile of `tile`. Anything playing does, over every tile: music
+     * goes on while you look around. A film that is not playing (paused, or KIK's report of where it was left, kept
+     * for hours) is a Continue for its own app: over SmartTube the shelf is SmartTube's, not last night's film with a
+     * close button to find first. With its app not in the dock there is no tile of its own, so it shows over all.
+     */
+    static boolean overTile(String pkg, boolean playing, boolean video, String tile, List<String> dock) {
+        return playing || !video || pkg.equals(tile) || !dock.contains(pkg);
+    }
+
+    /**
      * What players tell the card themselves (PlayerReport, KIK): shown when no media session is, and its picture,
      * episode and length added to the player's own session when there is one.
      */
