@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A row's state word («Підключено», a network's signal): readable on the glass, not only there. -->
+<!-- A row's state word («Підключено», a network's signal): nearly white, so a projector's washed-out dark still
+     shows it (at 70% the owner could not read it on the XGIMI). -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_focused="true" android:color="#B3111111" />
-    <item android:color="#B3FFFFFF" />
+    <item android:state_focused="true" android:color="#CC111111" />
+    <item android:color="#E6FFFFFF" />
 </selector>

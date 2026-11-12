@@ -85,7 +85,7 @@ final class AudioBanner {
         // Towards the middle of the screen: from the top bar's right end it grows to the left.
         boolean towardsLeft = from.centerX() > screen.widthPixels / 2;
         boolean focused = home != null && home.isFocused();
-        int ink = focused ? 0xFF111111 : 0xFFFFFFFF, dim = focused ? 0xB3111111 : 0xCCFFFFFF;
+        int ink = focused ? 0xFF111111 : 0xFFFFFFFF, dim = focused ? 0xCC111111 : 0xE6FFFFFF;
         int bw = from.width(), bh = from.height();
 
         Pill pill = new Pill(ctx, bw, towardsLeft, home == null, glass(ctx, focused, bh), focused ? null : base(bh));

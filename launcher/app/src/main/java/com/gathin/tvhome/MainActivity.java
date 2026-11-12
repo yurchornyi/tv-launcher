@@ -1386,6 +1386,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (pendingSearch != null) handler.post(this::runPendingSearch);
         nowPlaying.start();
         nowPlaying.stopPaused();   // a film or song left paused must not wake on the headphones' Play
+        handler.removeCallbacks(prepareSearch);
+        handler.postDelayed(prepareSearch, 3000);   // Search's apps, read off the main thread once Home has settled
         handler.removeCallbacks(seasonCheck);
         handler.postDelayed(seasonCheck, SEASON_START_MS);
         AudioDevices.addListener(audioListener);
@@ -1472,6 +1474,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     /** rebuild false: keep the tiles, redo focus and the entrance only (see appsMayHaveChanged). */
     private void reloadApps(boolean animate, boolean rebuild) {
+        if (rebuild) searchApps = null;   // apps came or went: Search reads them again
+        handler.removeCallbacks(prepareSearch);
+        handler.postDelayed(prepareSearch, 3000);   // once Home has settled, off the main thread
         cancelPendingFocusScroll();
         RecyclerView.ViewHolder footer = grid.findViewHolderForAdapterPosition(adapter.appCount());
         final boolean restoreLibrary = adapter.isLibraryAt(adapter.appCount()) && footer != null
@@ -1599,6 +1604,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         unregisterReceiver(packageReceiver);
         handler.removeCallbacks(packagesChanged);
         rebuildOnResume = true;
+        // Search's app pictures (a few MB of banners) go with Home; read again a moment after it is back.
+        handler.removeCallbacks(prepareSearch);
+        if (!searching) {
+            searchApps = null;
+            searchLabels = null;
+        }
         // Another app is in front: let go of the big pictures (a backdrop is ~2 MB); they reload when Home returns.
         heroArt.animate().cancel();
         heroArt.setImageDrawable(null);
@@ -3276,6 +3287,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             return;
         }
         searching = true;
+        if (season != null) season.stop(false);   // no rain drawn under the field as it widens
         searchAll = searchIndex();
         hideHero();
         hideGlass();
@@ -3313,12 +3325,18 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             ValueAnimator grow = ValueAnimator.ofInt(searchPillWidth, target);
             grow.setDuration(320);
             grow.setInterpolator(new android.view.animation.DecelerateInterpolator(1.8f));
+            // The focused pill's white turns into the field's glass as it widens, its dark glyph and word white.
+            android.graphics.drawable.GradientDrawable white = searchMorph(0f);
             grow.addUpdateListener(a -> {
                 flp.width = (int) a.getAnimatedValue();
                 searchField.setLayoutParams(flp);
+                searchTint(white, a.getAnimatedFraction());
             });
             grow.addListener(new android.animation.AnimatorListenerAdapter() {
-                @Override public void onAnimationEnd(android.animation.Animator a) { done.run(); }
+                @Override public void onAnimationEnd(android.animation.Animator a) {
+                    searchMorphEnd();
+                    done.run();
+                }
             });
             grow.start();
         } else {
@@ -3476,12 +3494,19 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             ValueAnimator shrink = ValueAnimator.ofInt(flp.width, searchPillWidth);
             shrink.setDuration(260);
             shrink.setInterpolator(new android.view.animation.DecelerateInterpolator(1.8f));
+            // And back: the glass whitens into the focused pill it gives way to, so the pill comes in unseen.
+            searchField.setText("");
+            android.graphics.drawable.GradientDrawable white = searchMorph(1f);
             shrink.addUpdateListener(a -> {
                 flp.width = (int) a.getAnimatedValue();
                 searchField.setLayoutParams(flp);
+                searchTint(white, 1f - a.getAnimatedFraction());
             });
             shrink.addListener(new android.animation.AnimatorListenerAdapter() {
-                @Override public void onAnimationEnd(android.animation.Animator a) { done.run(); }
+                @Override public void onAnimationEnd(android.animation.Animator a) {
+                    done.run();
+                    searchMorphEnd();
+                }
             });
             shrink.start();
         } else {
@@ -3493,8 +3518,87 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         }
     }
 
+    /**
+     * The field dressed for the move between it and the focused Search pill: the pill's white over its glass, `glass`
+     * of the way (0: all white) to the field's own look. Returns the white layer to fade (searchTint).
+     */
+    private android.graphics.drawable.GradientDrawable searchMorph(float glass) {
+        android.graphics.drawable.GradientDrawable white = new android.graphics.drawable.GradientDrawable();
+        white.setColor(0xF5FFFFFF);
+        white.setCornerRadius(21 * density);   // pill_bg's, the focused Search pill's own
+        searchField.setBackground(new android.graphics.drawable.LayerDrawable(
+                new Drawable[]{getDrawable(R.drawable.search_field_bg), white}));
+        searchTint(white, glass);
+        return white;
+    }
+
+    /** `glass` of the way from the white pill (dark glyph and word) to the field (white glyph, pale hint). */
+    private void searchTint(android.graphics.drawable.GradientDrawable white, float glass) {
+        float f = Math.max(0f, Math.min(1f, glass));
+        white.setAlpha(Math.round(255 * (1f - f)));
+        int ink = Math.round(0x11 + (0xFF - 0x11) * f);
+        int hintAlpha = Math.round(0xE6 + (0x80 - 0xE6) * f);
+        searchField.setHintTextColor((hintAlpha << 24) | (ink << 16) | (ink << 8) | ink);
+        searchField.setCompoundDrawableTintList(android.content.res.ColorStateList.valueOf(
+                (0xE6 << 24) | (ink << 16) | (ink << 8) | ink));
+    }
+
+    /** The field as it always is again: its own glass, a pale hint, a white glyph. */
+    private void searchMorphEnd() {
+        searchField.setBackgroundResource(R.drawable.search_field_bg);
+        searchField.setHintTextColor(0x80FFFFFF);
+        searchField.setCompoundDrawableTintList(android.content.res.ColorStateList.valueOf(0xE6FFFFFF));
+    }
+
     /** Everything Search can find: the installed apps, the shipped live channels, the films and videos on the shelves. */
     private List<SearchIndex.Result> searchIndex() {
+        List<SearchIndex.Result> cached = searchApps;
+        Map<String, String> labels = searchLabels;
+        if (cached == null || labels == null) {   // not read yet (Search right after Home came up): read it now
+            labels = new java.util.HashMap<>();
+            cached = searchApps(labels);
+            searchApps = cached;
+            searchLabels = labels;
+        }
+        List<SearchIndex.Result> out = new ArrayList<>(cached);
+        searchRest(out, labels);
+        return out;
+    }
+
+    /**
+     * Search's installed apps (their names, icons and banners), read ahead of time on a thread of their own: loading two
+     * dozen banners when Search opened held Home still before the field could even start to widen.
+     */
+    private volatile List<SearchIndex.Result> searchApps;
+    private volatile Map<String, String> searchLabels;
+    private boolean searchAppsLoading;
+    private final Runnable prepareSearch = this::prepareSearch;
+
+    private void prepareSearch() {
+        if (searchAppsLoading || searchApps != null || isFinishing()) return;
+        searchAppsLoading = true;
+        new Thread(() -> {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+            Map<String, String> labels = new java.util.HashMap<>();
+            List<SearchIndex.Result> apps;
+            try {
+                apps = searchApps(labels);
+            } catch (RuntimeException e) {
+                apps = null;
+            }
+            List<SearchIndex.Result> done = apps;
+            handler.post(() -> {
+                searchAppsLoading = false;
+                if (done != null && searchApps == null) {
+                    searchApps = done;
+                    searchLabels = labels;
+                }
+            });
+        }, "search-apps").start();
+    }
+
+    /** The installed apps as Search results, their names by package in `labels`. Any thread. */
+    private List<SearchIndex.Result> searchApps(Map<String, String> labels) {
         List<SearchIndex.Result> out = new ArrayList<>();
         android.content.pm.PackageManager pm = getPackageManager();
         Map<String, android.content.pm.ResolveInfo> apps = new java.util.LinkedHashMap<>();
@@ -3505,7 +3609,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 if (!pkg.equals(getPackageName()) && !apps.containsKey(pkg)) apps.put(pkg, info);
             }
         }
-        Map<String, String> labels = new java.util.HashMap<>();
         for (Map.Entry<String, android.content.pm.ResolveInfo> e : apps.entrySet()) {
             String pkg = e.getKey();
             String label;
@@ -3525,6 +3628,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 launchApp(pkg);
             }));
         }
+        return out;
+    }
+
+    /** The rest of Search, from what Home holds already: the live channels and the films and videos on the shelves. */
+    private void searchRest(List<SearchIndex.Result> out, Map<String, String> labels) {
         for (String pkg : liveChannelPackages()) {
             String app = labels.get(pkg);
             if (app == null) continue;   // not installed
@@ -3551,7 +3659,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                         () -> openItem(pkg, item)));
             }
         }
-        return out;
     }
 
     /**
@@ -5652,6 +5759,23 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
      * start over the button without being cut off at the window's edge.
      */
     private void growFrom(PopupWindow popup, View panel, View anchor, int gravity, boolean above) {
+        // A top bar button (Wi-Fi, headphones, Settings, Inputs): the button itself unfolds into its menu.
+        if (!above && popup instanceof FromButton.Popup && anchor.getParent() == findViewById(R.id.topButtons)
+                && anchor.getWidth() > 0) {
+            int motion = FromButton.motion(animations, reducedMotion);
+            MorphMenu morph = new MorphMenu(this, anchor, panel, gravity == Gravity.END, motion);
+            int height = popup.getHeight();   // a set height (a long list that scrolls) or WRAP_CONTENT
+            if (height > 0) {
+                panel.getLayoutParams().height = height;
+                popup.setHeight(height + morph.header());
+            }
+            popup.setContentView(morph.room());
+            ((FromButton.Popup) popup).morph(panel, morph, motion);
+            morph.open();
+            // The window's top at the button's top, its button end at the button's end.
+            popup.showAsDropDown(anchor, 0, -anchor.getHeight(), gravity);
+            return;
+        }
         int gap = (int) (10 * density);
         int lift = anchor.getHeight() + gap;
         int height = popup.getHeight();   // a set height (a long list that scrolls) or WRAP_CONTENT

@@ -15,8 +15,8 @@ import android.widget.PopupWindow;
  * A menu that belongs to a button comes out of it, as tvOS and iOS open theirs: in its own place and shape, it springs
  * up from a smaller size, growing from the point nearest the button, while it fades in. Closing shrinks it a little
  * towards the button as it fades. The window that shows it takes in the button too (MainActivity.growFrom). Only scale
- * and alpha move: cheap even on the XGIMI's GPU. The headphones banner unfolds out of its button its own way
- * (AudioBanner) with the same springs.
+ * and alpha move: cheap even on the XGIMI's GPU. A top bar button's menu does more: the button itself unfolds into
+ * it (MorphMenu), as the headphones banner does (AudioBanner), with the same springs.
  */
 final class FromButton {
 
@@ -212,6 +212,8 @@ final class FromButton {
         private Rect button;
         private int motion = NONE;
         private boolean closing;
+        /** A top bar button's menu unfolds out of the button and folds back into it (MorphMenu), else null. */
+        private MorphMenu morph;
 
         Popup(View content, int width, int height, boolean focusable) {
             super(content, width, height, focusable);
@@ -223,16 +225,40 @@ final class FromButton {
             this.motion = motion;
         }
 
+        void morph(View panel, MorphMenu morph, int motion) {
+            this.panel = panel;
+            this.morph = morph;
+            this.motion = motion;
+        }
+
         /** Closes at once: what it came from is going away too. */
         void dismissNow() {
             closing = true;
+            if (morph != null) morph.restore();   // its button comes back whichever way the menu goes
             super.dismiss();
         }
 
         @Override public void dismiss() {
             if (closing) return;
             if (panel == null || motion == NONE || !isShowing() || gone(panel.getContext())) {
+                if (morph != null) morph.restore();
                 super.dismiss();
+                return;
+            }
+            if (morph != null) {
+                closing = true;
+                try {
+                    setFocusable(false);
+                    setTouchable(false);
+                    update();
+                } catch (RuntimeException ignored) {   // a window already on its way out
+                }
+                morph.close(() -> {
+                    try {
+                        super.dismiss();
+                    } catch (RuntimeException ignored) {   // Home went away meanwhile and took the window with it
+                    }
+                });
                 return;
             }
             closing = true;
