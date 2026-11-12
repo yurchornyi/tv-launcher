@@ -210,6 +210,17 @@ final class MorphMenu {
             line.setColor(0x1FFFFFFF);
         }
 
+        /**
+         * No size of its own: the name and the rows give the window its height, then this fills it. Measured as a plain
+         * View it took all the height the window could have, and the card ran down to the bottom of the screen.
+         */
+        @Override
+        protected void onMeasure(int widthSpec, int heightSpec) {
+            setMeasuredDimension(
+                    MeasureSpec.getMode(widthSpec) == MeasureSpec.EXACTLY ? MeasureSpec.getSize(widthSpec) : 0,
+                    MeasureSpec.getMode(heightSpec) == MeasureSpec.EXACTLY ? MeasureSpec.getSize(heightSpec) : 0);
+        }
+
         /** The card's box in a window w by h at q (0..1): from a drop as wide as the button, under it, to the window. */
         RectF card(int w, int h, float q) {
             float drop = Math.min(bw, w);
