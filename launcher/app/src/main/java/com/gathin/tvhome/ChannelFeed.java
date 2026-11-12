@@ -209,6 +209,24 @@ final class ChannelFeed {
         return ms == null ? 0 : ms;
     }
 
+    private static final java.util.regex.Pattern THUMB = java.util.regex.Pattern.compile("/vi(?:_webp)?/([A-Za-z0-9_-]{11})/");
+
+    /**
+     * What tells two shelf pictures apart, whatever size or address they were asked at: a YouTube thumbnail's video
+     * id (every video's are named sddefault.jpg, hqdefault.jpg..., so the file name says nothing: SmartTube's
+     * Continue took another video of its channel for the same one, dropped it and showed its length, «ще 3 год» for a
+     * 15-minute video), else the file name (TMDB's). Null for none, or a name too short to tell anything.
+     */
+    static String pictureKey(String url) {
+        if (url == null) return null;
+        java.util.regex.Matcher m = THUMB.matcher(url);
+        if (m.find()) return "yt:" + m.group(1);
+        String f = url.substring(url.lastIndexOf('/') + 1);
+        int q = f.indexOf('?');
+        if (q >= 0) f = f.substring(0, q);
+        return f.length() > 8 ? f : null;
+    }
+
     /** The YouTube video id in an intent or watch URL, or null. */
     static String videoId(String uri) {
         if (uri == null) return null;
