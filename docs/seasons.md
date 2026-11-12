@@ -1,31 +1,31 @@
 # Seasons and weather
 
-While Home sits still (four seconds after the last key), something falls across it, chosen by the month and by the
-weather the top bar shows (Open-Meteo, the same reading as the temperature):
+While Home is on the screen, something falls across it, chosen by the month and by the weather the top bar shows
+(Open-Meteo, the same reading as the temperature):
 
 | When | What falls | On the tiles |
 |---|---|---|
-| December to February | gentle snow | it settles on the tiles' tops and on the shelf's pill, a cap that grows |
+| December to February | gentle snow | it settles on the tops of the tiles, the shelf's pill, the Now Playing card and Kyivstar's channel logos, a cap that grows |
 | March to May | cherry blossom | a petal rests on an edge for a moment |
 | June to August | fireflies, rising and twinkling | nothing: they fly free |
 | September to November | autumn leaves, turning as they fall | a leaf rests on an edge for a moment |
 | It snows outside | thick snow | caps grow faster |
-| It rains outside | rain, slanted | drops burst on the top edges, beads run down the faces and the Continue pill, hang from the lower edge and drip |
+| It rains outside | rain, slanted | drops burst on the top edges, beads run down the tiles, the Continue pill, the card and the channel logos, hang from the lower edge and drip |
 | A thunderstorm | heavier rain, flashes of light | as rain |
 
-The first key takes it away (a quick fade) and does what it always did. After three minutes with no key it stops by
-itself until the next one, so a TV left on Home does not keep its GPU busy. It never shows over another app, a menu,
-search, the full-screen player or while reordering, and not with animations off or reduced motion.
+It keeps falling while you move around Home (owner, 12.11: the rain must not go at a key). It never shows over
+another app, a menu, search, the full-screen player or while reordering, and not with animations off or reduced
+motion; the screensaver or a dark screen ends it.
 
 **Turn it off**: hold OK on Settings, Launcher settings, Motion, «Погода й пори року».
 
 ## Cost
 
-It is one view over Home drawn about 30 times a second, only while it plays: a few dozen circles, lines and small
-paths a frame, nothing allocated per frame. On the XGIMI, whose GPU redraws the whole screen every frame, that is the
-price of any animation on Home; the scene stops at the first key so moving between tiles is never slower.
+It is one view over Home drawn about 30 times a second while Home is on the screen: a few dozen circles, lines and
+small paths a frame, nothing allocated per frame. On the XGIMI, whose GPU redraws the whole screen every frame, that
+keeps Home drawing all the time it is up; the switch in Launcher settings turns it off where that is too much.
 
 ## Code
 
-`Season` picks the scene (tested in `SeasonTest`); `SeasonView` draws it and reads where the tiles and the pill are
-through `MainActivity.seasonBoxes`; `MainActivity.seasonCheck` starts and stops it.
+`Season` picks the scene (tested in `SeasonTest`); `SeasonView` draws it and reads where the tiles, the pill, the card
+and the channel logos are through `MainActivity.seasonBoxes`; `MainActivity.seasonCheck` starts and stops it.

@@ -486,7 +486,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         openPopup = popup;
         TextView now = updateButton(getString(R.string.update_now), () -> {
             popup.dismiss();
-            updater.install();
+            updater.installAsked();
         });
         TextView later = updateButton(getString(R.string.update_later), popup::dismiss);   // the Settings menu keeps "Update to"
         LinearLayout.LayoutParams left = new LinearLayout.LayoutParams(0, (int) (52 * density), 1f);
@@ -1386,9 +1386,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (pendingSearch != null) handler.post(this::runPendingSearch);
         nowPlaying.start();
         nowPlaying.stopPaused();   // a film or song left paused must not wake on the headphones' Play
-        lastKeyAt = SystemClock.uptimeMillis();
         handler.removeCallbacks(seasonCheck);
-        handler.postDelayed(seasonCheck, SEASON_IDLE_MS);
+        handler.postDelayed(seasonCheck, SEASON_START_MS);
         AudioDevices.addListener(audioListener);
         AudioDevices.refresh(this);
         updateAudioButton();
@@ -1615,13 +1614,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        // A menu, a dialog or the screensaver over Home: the scene stops; back on Home it comes after the idle wait.
+        // A menu, a dialog or the screensaver over Home: the scene stops, and comes back with Home's focus.
         handler.removeCallbacks(seasonCheck);
         if (!hasFocus && season != null) season.stop(true);
-        else if (hasFocus) {
-            lastKeyAt = SystemClock.uptimeMillis();   // keys in a closing menu never reached Home's dispatchKeyEvent
-            handler.postDelayed(seasonCheck, SEASON_IDLE_MS);
-        }
+        else if (hasFocus) handler.postDelayed(seasonCheck, SEASON_START_MS);
         if (hasFocus) {
             if (libraryFocusPending && appLibrary == null) focusLibrary();
             showCardPrompt();
@@ -1709,9 +1705,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     public boolean dispatchKeyEvent(KeyEvent event) {
         lastKeyAt = SystemClock.uptimeMillis();
         if (season != null && event.getAction() == KeyEvent.ACTION_DOWN) {
-            if (season.running()) season.stop(true);   // the first key takes it away, and does what it does
+            // The scene stays while keys move around Home; one that opens search or the player is seen just after.
             handler.removeCallbacks(seasonCheck);
-            handler.postDelayed(seasonCheck, SEASON_IDLE_MS);
+            handler.postDelayed(seasonCheck, 400);
         }
         if (ambientScreen.getVisibility() == View.VISIBLE && !ambientHiding) {
             // The full-screen player: its buttons take the arrows and OK, the media keys work from anywhere, Back
@@ -5392,34 +5388,18 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     // ---- seasons and weather over an idle Home (SeasonView) ------------------------------------------------------
 
-    /** Nothing pressed this long: the scene comes. */
-    private static final long SEASON_IDLE_MS = 4000;
-    /** Home left on its own this long: the scene goes until the next key, so the GPU rests (and the projector). */
-    private static final long SEASON_MAX_MS = 3 * 60_000L;
+    /** Home this long on the screen (or back from a menu): the scene comes. */
+    private static final long SEASON_START_MS = 1500;
     private SeasonView season;
-    private long seasonSince;
     private final int[] seasonAt = new int[2], seasonOrigin = new int[2];
     private final Runnable seasonCheck = this::seasonCheck;
 
+    /** Starts the scene where it may play, stops it where it may not (another app, a menu, search, the player). */
     private void seasonCheck() {
         handler.removeCallbacks(seasonCheck);
         if (season == null) return;
-        if (!seasonAllowed()) {
-            season.stop(true);
-            return;   // a key, Home's focus or onResume asks again
-        }
-        long now = SystemClock.uptimeMillis(), idle = now - lastKeyAt;
-        if (idle < SEASON_IDLE_MS) {
-            handler.postDelayed(seasonCheck, SEASON_IDLE_MS - idle);
-            return;
-        }
-        if (!season.running()) {
-            seasonSince = now;
-            startSeason();
-        }
-        long left = SEASON_MAX_MS - (now - seasonSince);
-        if (left <= 0) season.stop(true);
-        else handler.postDelayed(seasonCheck, left);
+        if (!seasonAllowed()) season.stop(true);
+        else if (!season.running()) startSeason();
     }
 
     private boolean seasonAllowed() {
@@ -5434,8 +5414,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     }
 
     /**
-     * What the scene's drops land on (SeasonView.Tiles): the app tiles on the screen, by adapter position, and the
-     * shelf's Watch or Continue pill, in the scene's coordinates. A tile scrolled out of the grid's window is left out.
+     * What the scene's drops land on (SeasonView.Tiles), in the scene's coordinates: the app tiles on the screen, by
+     * adapter position, the shelf's Watch or Continue pill, the Now Playing card and the logos of a channel row
+     * (Kyivstar's). A tile scrolled out of the grid's window is left out.
      */
     private int seasonBoxes(float[] out) {
         int n = 0;
@@ -5454,13 +5435,26 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             if (t < top - 4 * density || b > bottom + 40 * density) continue;   // under the top bar, or off the screen
             n = box(out, n, pos, l, t, l + card.getWidth() * card.getScaleX(), b);
         }
-        if (shelfOpen.getVisibility() == View.VISIBLE && shelfOpen.getAlpha() > 0.5f && shelfOpen.getWidth() > 0
-                && (n + 1) * 5 <= out.length) {
-            shelfOpen.getLocationInWindow(seasonAt);
-            float l = seasonAt[0] - seasonOrigin[0], t = seasonAt[1] - seasonOrigin[1];
-            n = box(out, n, SeasonView.PILL, l, t, l + shelfOpen.getWidth(), t + shelfOpen.getHeight());
+        n = seasonBox(out, n, shelfOpen, SeasonView.PILL);
+        n = seasonBox(out, n, npCard, SeasonView.CARD);
+        // A channel row on the shelf (Kyivstar's): each logo on the screen is a box of its own.
+        if (channelsPkg != null && shelfChannelsScroll.getVisibility() == View.VISIBLE && shelfChannelsScroll.getAlpha() > 0.5f) {
+            for (int i = 0; i < shelfChannels.getChildCount() && SeasonView.CHANNELS + i < SeasonView.IDS; i++) {
+                n = seasonBox(out, n, shelfChannels.getChildAt(i), SeasonView.CHANNELS + i);
+            }
         }
         return n;
+    }
+
+    /** A view on the screen, shown in full, as a box with this id; off the screen or hidden, none. */
+    private int seasonBox(float[] out, int n, View v, int id) {
+        if ((n + 1) * 5 > out.length || v.getVisibility() != View.VISIBLE || v.getAlpha() < 0.5f || v.getWidth() == 0
+                || !v.isShown()) return n;
+        v.getLocationInWindow(seasonAt);
+        float l = seasonAt[0] - seasonOrigin[0], t = seasonAt[1] - seasonOrigin[1];
+        float r = l + v.getWidth() * v.getScaleX(), b = t + v.getHeight() * v.getScaleY();
+        if (r < 0 || l > season.getWidth()) return n;   // a channel scrolled out of the row
+        return box(out, n, id, l, t, r, b);
     }
 
     private static int box(float[] out, int n, int id, float l, float t, float r, float b) {
@@ -5722,7 +5716,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         LinearLayout rows = panel.findViewById(R.id.rows);
         PopupWindow popup = glassPopup(panel, (int) (200 * density));
         String update = updater.readyVersion();
-        if (update != null) addSettingsMenuRow(rows, popup, getString(R.string.update_to, update), updater::install);
+        if (update != null) addSettingsMenuRow(rows, popup, getString(R.string.update_to, update), updater::installAsked);
         else updater.check(true);   // opening this menu is as good a moment as any to look for one
         // The essentials only: the TV's own settings first, as the gear's single press used to open them.
         addSettingsMenuRow(rows, popup, R.string.tv_settings, () -> open(systemIntent(Settings.ACTION_SETTINGS)));

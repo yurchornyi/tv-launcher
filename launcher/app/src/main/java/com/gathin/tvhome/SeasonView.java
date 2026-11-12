@@ -12,11 +12,11 @@ import java.util.Arrays;
 import java.util.Random;
 
 /**
- * Snow, rain, leaves, blossom or fireflies across Home while nobody touches the remote (Season picks which). It knows
- * where the app tiles and the shelf's pill are (Tiles): rain bursts on their top edges, beads run down their faces and
- * hang from their lower edges until they drip; snow settles on them in a cap; a leaf or a petal rests on an edge for
- * a moment. Drawn over Home about 30 times a second and only while it plays (MainActivity starts it after a few idle
- * seconds and stops it at the first key), allocating nothing per frame. Takes no focus, keys or accessibility.
+ * Snow, rain, leaves, blossom or fireflies across Home (Season picks which). It knows where the app tiles, the shelf's
+ * pill, the Now Playing card and a channel row's logos are (Tiles): rain bursts on their top edges, beads run down
+ * their faces and hang from their lower edges until they drip; snow settles on them in a cap; a leaf or a petal rests
+ * on an edge for a moment. Drawn over Home about 30 times a second while Home is on the screen (MainActivity), keys
+ * and all, allocating nothing per frame. Takes no focus, keys or accessibility.
  */
 public final class SeasonView extends View {
 
@@ -28,8 +28,11 @@ public final class SeasonView extends View {
         int fill(float[] out);
     }
 
-    /** The shelf pill's id among the boxes; tiles go by adapter position, below it. */
-    static final int PILL = 256;
+    /**
+     * Box ids: tiles go by adapter position, below PILL; then the shelf's pill, the Now Playing card, and a channel
+     * row's logos (CHANNELS + their place in the row), all below IDS.
+     */
+    static final int PILL = 256, CARD = 257, CHANNELS = 258, IDS = 320;
 
     private static final float TAU = (float) (2 * Math.PI);
     private static final int MAX_BOXES = 48, SPLASHES = 64, RUNNERS = 24, DRIPS = 24;
@@ -82,8 +85,8 @@ public final class SeasonView extends View {
     private final float[] dAcross = new float[DRIPS], dR = new float[DRIPS], dAge = new float[DRIPS],
             dX = new float[DRIPS], dY = new float[DRIPS], dVy = new float[DRIPS], dFell = new float[DRIPS];
 
-    /** Snow settled on each box's top edge, by id (tiles 0-255, the pill last). */
-    private final float[] cap = new float[PILL + 1];
+    /** Snow settled on each box's top edge, by id. */
+    private final float[] cap = new float[IDS];
     private float flashT = -1f, flashDue;
 
     public SeasonView(Context context) {
@@ -295,7 +298,7 @@ public final class SeasonView extends View {
             if (b >= 0) {
                 int o = b * 5, id = (int) boxes[o];
                 if (snow) {
-                    if (id >= 0 && id <= PILL) cap[id] = Math.min(5f * d, cap[id] + 0.35f * d * (0.6f + 0.8f * depth[i]));
+                    if (id >= 0 && id < IDS) cap[id] = Math.min(5f * d, cap[id] + 0.35f * d * (0.6f + 0.8f * depth[i]));
                     spawn(i, w, h, false);
                     continue;
                 }
@@ -366,7 +369,7 @@ public final class SeasonView extends View {
         paint.setAlpha(238);
         for (int b = 0; b < boxCount; b++) {
             int o = b * 5, id = (int) boxes[o];
-            float h = id >= 0 && id <= PILL ? cap[id] : 0f;
+            float h = id >= 0 && id < IDS ? cap[id] : 0f;
             if (h < 0.4f * d) continue;
             oval.set(boxes[o + 1] + 5f * d, boxes[o + 2] - h, boxes[o + 3] - 5f * d, boxes[o + 2] + 2.5f * d);
             c.drawRoundRect(oval, h, h, paint);
