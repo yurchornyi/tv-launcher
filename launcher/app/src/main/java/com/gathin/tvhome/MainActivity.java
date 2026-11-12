@@ -5189,7 +5189,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private void showNetworkMenu() {
         View panel = getLayoutInflater().inflate(R.layout.popup_inputs, root, false);
         LinearLayout rows = panel.findViewById(R.id.rows);
-        PopupWindow popup = glassPopup(panel, (int) (320 * density));
+        PopupWindow popup = glassPopup(panel, (int) (260 * density));
         WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         String current = null;
         boolean ethernet = false, online = false;
@@ -5210,8 +5210,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         // Where the TV is now.
         String here = ethernet ? getString(R.string.ethernet) : current != null ? current
                 : getString(online ? R.string.wifi : R.string.offline);
-        addNetworkRow(rows, popup, ethernet ? R.drawable.ic_ethernet : R.drawable.ic_wifi, here,
-                online ? getString(R.string.connected) : "", online, all);
+        // In use: a green check, no word.
+        addNetworkRow(rows, popup, ethernet ? R.drawable.ic_ethernet : R.drawable.ic_wifi, here, "",
+                online ? getDrawable(R.drawable.ic_check) : null, false,
+                online ? here + ", " + getString(R.string.connected) : here, all);
         // Around it: the strongest of each name, the one it is on left out, at most six.
         List<android.net.wifi.ScanResult> around = new ArrayList<>();
         // Android shows the networks around only to an app with the location permission (asked for the weather).
@@ -5237,8 +5239,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             int level = WifiManager.calculateSignalLevel(r.level, 4);
             String signal = getString(level >= 3 ? R.string.signal_strong : level == 2 ? R.string.signal_good
                     : R.string.signal_weak);
-            addNetworkRow(rows, popup, open ? R.drawable.ic_wifi : R.drawable.ic_lock, name,
-                    open ? getString(R.string.network_open) + " · " + signal : signal, false, () -> joinNetwork(name));
+            // Its signal as bars, not words; the words stay for accessibility.
+            int bars = level >= 3 ? R.drawable.ic_signal_3 : level == 2 ? R.drawable.ic_signal_2 : R.drawable.ic_signal_1;
+            addNetworkRow(rows, popup, open ? R.drawable.ic_wifi : R.drawable.ic_lock, name, "", getDrawable(bars), true,
+                    name + ", " + (open ? getString(R.string.network_open) + ", " : "") + signal, () -> joinNetwork(name));
             if (listed == 6) break;
         }
         addSeparator(rows);
@@ -5248,11 +5252,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (vpn != null) {
             Intent app = vpn;
             addNetworkRow(rows, popup, R.drawable.ic_lock, getString(R.string.vpn) + " · " + appLabel(vpnApp),
-                    vpnCountry.isEmpty() ? "" : vpnCountry, false, () -> open(app));
+                    vpnCountry.isEmpty() ? "" : vpnCountry, null, false, null, () -> open(app));
         }
         addSettingsMenuRow(rows, popup, R.string.network_all, all);
         panel.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
-        popup.setWidth(Math.max((int) (320 * density), panel.getMeasuredWidth()));
+        popup.setWidth(Math.max((int) (260 * density), panel.getMeasuredWidth()));
         dropIn(popup, panel, btnWifi, getResources().getBoolean(R.bool.rtl_menu_bar) ? Gravity.START : Gravity.END);
         rows.getChildAt(0).requestFocus();
     }
@@ -5265,20 +5269,39 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     }
 
     /** One network row: its glyph, name and a word on its state; `on`: the green dot of the network in use. */
-    private void addNetworkRow(LinearLayout rows, PopupWindow popup, int icon, String title, String status, boolean on,
-                               Runnable action) {
+    private void addNetworkRow(LinearLayout rows, PopupWindow popup, int icon, String title, String status, Drawable mark,
+                               boolean tintMark, String spoken, Runnable action) {
         View row = getLayoutInflater().inflate(R.layout.item_input, rows, false);
         ((ImageView) row.findViewById(R.id.icon)).setImageResource(icon);
         ((TextView) row.findViewById(R.id.title)).setText(title);
         TextView st = row.findViewById(R.id.status);
         st.setText(status);
-        st.setVisibility(status.isEmpty() ? View.GONE : View.VISIBLE);
-        row.findViewById(R.id.dot).setVisibility(on ? View.VISIBLE : View.GONE);
+        // A mark at the row's end (a check, signal bars, a battery), before its few words if any; tinted with the
+        // words (dark on the focused row's white) unless it has a colour of its own (the green check).
+        if (mark != null) {
+            st.setCompoundDrawablesRelativeWithIntrinsicBounds(mark, null, null, null);
+            st.setCompoundDrawablePadding(status.isEmpty() ? 0 : (int) (6 * density));
+            if (tintMark) st.setCompoundDrawableTintList(st.getTextColors());
+        }
+        st.setVisibility(status.isEmpty() && mark == null ? View.GONE : View.VISIBLE);
+        row.findViewById(R.id.dot).setVisibility(View.GONE);
+        if (spoken != null) row.setContentDescription(spoken);
         row.setOnClickListener(v -> {
             popup.dismiss();
             action.run();
         });
         rows.addView(row);
+    }
+
+    /** A battery `percent` full (ic_battery: its fill clipped from the left to the charge). */
+    private Drawable battery(int percent) {
+        android.graphics.drawable.LayerDrawable b =
+                (android.graphics.drawable.LayerDrawable) getDrawable(R.drawable.ic_battery).mutate();
+        // The fill spans 3..20 of the icon's 26 wide; the clip reveals from its left edge.
+        float reveal = (3f + 17f * Math.max(0, Math.min(100, percent)) / 100f) / 26f;
+        Drawable fill = b.findDrawableByLayerId(R.id.battery_fill);
+        if (fill != null) fill.setLevel(Math.round(reveal * 10000));
+        return b;
     }
 
     /** Joins a network chosen in the menu, or brings the TV's own list up with it named (see showNetworkMenu). */
@@ -5451,18 +5474,17 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (name == null) return;
         View panel = getLayoutInflater().inflate(R.layout.popup_inputs, root, false);
         LinearLayout rows = panel.findViewById(R.id.rows);
-        PopupWindow popup = glassPopup(panel, (int) (300 * density));
-        addInputRow(rows, popup, AudioDevices.icon(AudioDevices.speaker()), name, TvInputManager.INPUT_STATE_CONNECTED, () -> { });
+        PopupWindow popup = glassPopup(panel, (int) (240 * density));
+        // The device and how charged it is, a battery and its percent; one that tells no charge gets the check of
+        // a connected thing. No words (owner: no «Підключено», a mark), and no TV settings row in this menu.
         int level = AudioDevices.battery();
-        if (level >= 0) {
-            TextView status = rows.getChildAt(rows.getChildCount() - 1).findViewById(R.id.status);
-            status.setText(getString(R.string.connected) + " · " + level + "%");
-        }
+        String spoken = name + ", " + getString(R.string.connected) + (level >= 0 ? ", " + level + "%" : "");
+        addNetworkRow(rows, popup, AudioDevices.icon(AudioDevices.speaker()), name, level >= 0 ? level + "%" : "",
+                level >= 0 ? battery(level) : getDrawable(R.drawable.ic_check), level >= 0, spoken, () -> { });
         addSeparator(rows);
         addSettingsMenuRow(rows, popup, R.string.add_accessory, () -> open(new Intent("com.google.android.intent.action.CONNECT_INPUT")));
-        addSettingsMenuRow(rows, popup, R.string.tv_settings, () -> open(systemIntent(Settings.ACTION_SETTINGS)));
         panel.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
-        popup.setWidth(Math.max((int) (300 * density), panel.getMeasuredWidth()));
+        popup.setWidth(Math.max((int) (240 * density), panel.getMeasuredWidth()));
         dropIn(popup, panel, btnAudio, Gravity.END);
         rows.getChildAt(0).requestFocus();
     }
