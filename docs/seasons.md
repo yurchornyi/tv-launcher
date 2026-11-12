@@ -21,10 +21,11 @@ motion; the screensaver or a dark screen ends it.
 
 ## Cost
 
-It is one view over Home drawn about 30 times a second while Home is on the screen, nothing allocated per frame. Rain,
-snow and splashes go out in a few batched calls (one per depth layer), not one per drop: per-drop calls made issuing
-the frame the slow part on the XGIMI (moving along the dock: 40 ms median frame, 147 of 257 frames slow to issue). On the XGIMI, whose GPU redraws the whole screen every frame, that
-keeps Home drawing all the time it is up; the switch in Launcher settings turns it off where that is too much.
+It is one view over Home drawn about 30 times a second while Home is on the screen, nothing allocated per frame, and
+it draws only shapes the GPU takes as they are: rectangles (a raindrop in a canvas turned to the rain's slant, a wet
+trail, a leaf's midrib) and circles (a flake, a bead, a droplet). A stroked line or a round point is a path of its own
+to Skia: drawn that way, batched or not, the rain doubled Home's frame time on the XGIMI while moving along the dock
+(19 ms to 38 ms median). The switch in Launcher settings turns it off where any of it is too much.
 
 ## Code
 
