@@ -5163,6 +5163,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                         return;
                     }
                 }
+            } catch (SecurityException ignored) {   // no permission to read the saved networks: its own screen below
             } catch (RuntimeException ignored) {   // a TV that keeps the list to itself: its own screen below
             }
         }
