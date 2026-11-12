@@ -261,12 +261,12 @@ final class AudioBanner {
     }
 
     /**
-     * A dark capsule under the glass, the menus' own scrim (glass_panel): the words read over a bright poster or
-     * another app's picture. Over Home's button it comes in as the capsule opens, so its first frame is the button.
+     * A see-through dark tint under the glass, the top bar menus' own (MorphMenu): the picture behind still shows and
+     * the words read over it. Over Home's button it comes in as the capsule opens, so its first frame is the button.
      */
     private static Drawable base(int height) {
         GradientDrawable g = new GradientDrawable();
-        g.setColor(0xF20A0B0D);
+        g.setColor(0xB30A0B0D);
         g.setCornerRadius(height / 2f);
         return g;
     }

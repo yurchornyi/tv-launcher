@@ -43,6 +43,9 @@ final class MorphMenu {
     private boolean hidden;
     /** The menu has gone (or is going away at once): the button must not be hidden after it. */
     private boolean over;
+    /** The top bar's other buttons the open card lies over, and their alpha before they stepped aside. */
+    private final java.util.List<View> covered = new java.util.ArrayList<>();
+    private final java.util.List<Float> coveredAlpha = new java.util.ArrayList<>();
 
     /**
      * `panel` (popup_inputs: the rows) goes below a header band as tall as the button, `title` across it (null: the
@@ -115,6 +118,7 @@ final class MorphMenu {
             done.run();
             return;
         }
+        uncover(true);   // the buttons it lay over come back as it folds away
         run(false, () -> {
             restore();
             done.run();
@@ -125,6 +129,7 @@ final class MorphMenu {
     void restore() {
         over = true;
         if (anim != null) anim.cancel();
+        uncover(false);
         if (!hidden) return;
         hidden = false;
         anchor.setAlpha(anchorAlpha);
@@ -135,6 +140,41 @@ final class MorphMenu {
         hidden = true;
         anchorAlpha = anchor.getAlpha();
         anchor.setAlpha(0f);
+        cover();
+    }
+
+    /**
+     * The top bar's other buttons under the open card step aside while it is out: through its glass, the Search pill
+     * showed half covered beside the Settings menu.
+     */
+    private void cover() {
+        if (!(anchor.getParent() instanceof ViewGroup) || room.getWidth() == 0) return;
+        int[] at = new int[2];
+        room.getLocationOnScreen(at);
+        Rect card = new Rect(at[0], at[1], at[0] + room.getWidth(), at[1] + room.getHeight());
+        ViewGroup bar = (ViewGroup) anchor.getParent();
+        for (int i = 0; i < bar.getChildCount(); i++) {
+            View b = bar.getChildAt(i);
+            if (b == anchor || b.getVisibility() != View.VISIBLE || b.getAlpha() == 0f) continue;
+            if (!Rect.intersects(card, FromButton.bounds(b))) continue;
+            covered.add(b);
+            coveredAlpha.add(b.getAlpha());
+            b.animate().cancel();
+            if (motion == FromButton.NONE) b.setAlpha(0f);
+            else b.animate().alpha(0f).setDuration(140).start();
+        }
+    }
+
+    /** The covered buttons back: with a short fade as the card folds away from them, or at once. */
+    private void uncover(boolean fade) {
+        for (int i = 0; i < covered.size(); i++) {
+            View b = covered.get(i);
+            b.animate().cancel();
+            if (fade && motion != FromButton.NONE) b.animate().alpha(coveredAlpha.get(i)).setDuration(220).start();
+            else b.setAlpha(coveredAlpha.get(i));
+        }
+        covered.clear();
+        coveredAlpha.clear();
     }
 
     private void run(boolean opening, Runnable done) {
@@ -212,7 +252,7 @@ final class MorphMenu {
     }
 
     /**
-     * The card itself: the buttons' glass (pill_bg's gradient and hairline) over an opaque dark ground, between the
+     * The card itself: the buttons' glass (pill_bg's gradient, a brighter hairline) over a see-through dark tint, between the
      * button's box (0) and the whole window (1); at first the button's own picture, fading as the card grows, and on
      * an icon-only button its glyph in white, which stays in the card's corner.
      */
@@ -240,8 +280,11 @@ final class MorphMenu {
             sy = anchor.getScaleY();
             setWillNotDraw(false);
             setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
-            ground.setColor(0xFF0A0B0D);
-            glass.setStroke(Math.max(1, Math.round(d)), 0x38FFFFFF);
+            // See-through glass, as the buttons are (owner: a glass frame with everything visible behind it): the
+            // picture behind shows through a dark tint that keeps the words readable. Android's blur behind a window
+            // is off on these TVs, so it is a tint, not frosting.
+            ground.setColor(0xB30A0B0D);
+            glass.setStroke(Math.max(1, Math.round(d)), 0x59FFFFFF);
             line.setColor(0x1FFFFFFF);
             // The button as it is drawn now (focused: white, its glyph dark), for the first frames.
             Bitmap b = null;
