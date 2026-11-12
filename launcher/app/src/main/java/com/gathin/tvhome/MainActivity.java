@@ -4432,19 +4432,27 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     }
 
     private void hideHero() {
+        // What stands just above the dock (the Watch or Continue pill, the poster's title, the channel row, the Now
+        // Playing card, the app's name) goes at once: focus going down scrolls the grid up under it, and fading out
+        // over the moving tiles, the pill was still there half-way through. Only the pictures behind fade.
+        shelfOpen.animate().cancel();
+        shelfOpen.setAlpha(0f);
+        shelfOpen.setVisibility(View.GONE);
+        shelfTitle.animate().cancel();
+        shelfTitle.setAlpha(0f);
+        shelfLive.animate().cancel();
+        shelfLive.setAlpha(0f);
+        stopChannels(false);
+        hideNowPlaying(false);
+        heroName.animate().cancel();
+        heroName.setAlpha(0f);
         hideShelfArt(animations);
         if (!heroShown) return;
         stopAmbientAnimation();
-        heroName.animate().cancel();
         ambient.animate().cancel();
         heroShown = false;
-        if (animations) {
-            heroName.animate().alpha(0f).setDuration(reducedMotion ? 100 : 160).start();
-            ambient.animate().alpha(0f).setDuration(reducedMotion ? 140 : 300).start();
-        } else {
-            heroName.setAlpha(0f);
-            ambient.setAlpha(0f);
-        }
+        if (animations) ambient.animate().alpha(0f).setDuration(reducedMotion ? 140 : 300).start();
+        else ambient.setAlpha(0f);
     }
 
     private void hideGlass() {
