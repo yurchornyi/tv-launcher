@@ -343,7 +343,7 @@ public final class LauncherSettingsActivity extends Activity {
         section(list, R.string.settings_section_about, false);
         Row version = row(list, getString(R.string.version_label), getString(R.string.version_hint), () -> {
             if (updater.readyVersion() != null) {
-                updater.install();
+                updater.installAsked();
                 return;
             }
             updateState = getString(R.string.checking);

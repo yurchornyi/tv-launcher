@@ -41,6 +41,14 @@ final class Updater {
     private static final long CHECK_MS = 60 * 60 * 1000L;
     /** When install() handed a build to Android (prefs "updater"): the replaced build then starts Home again. */
     static final String INSTALLING_AT = "installing_at";
+    /**
+     * The session waiting for Home to be out of sight (prefs "updater"; Android 14+, waits()): an update replaces
+     * the launcher only while another app is in front or the screen is off, so nobody sees the app behind Home
+     * (KIK, Netflix) come up for the seconds Android needs to swap it.
+     */
+    static final String WAITING_SESSION = "waiting_session";
+    /** How long a waiting update may wait for Home to go out of sight: the most Android allows. */
+    private static final long WAIT_MS = 7 * 24 * 60 * 60 * 1000L;
 
     private final Context ctx;
     private final String url;
@@ -193,13 +201,38 @@ final class Updater {
     }
 
     /**
+     * The update waits for Home to be out of sight before it goes in (Android 14 lets an installer ask for that):
+     * Android takes the launcher away for a few seconds to swap it, and on screen that showed the app behind Home.
+     */
+    boolean waits() {
+        return android.os.Build.VERSION.SDK_INT >= 34 && silent();
+    }
+
+    /** The person asked for the update (a button): install(), saying when it goes in if it waits. */
+    void installAsked() {
+        install();
+        if (waits() && readyVersion() != null) {
+            android.widget.Toast.makeText(ctx, R.string.update_when_away, android.widget.Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /**
      * Hands the downloaded APK to Android's installer, asking for no confirmation; when Android still wants one it
-     * comes back through UpdateReceiver. After the install Home restarts on its own.
+     * comes back through UpdateReceiver. After the install Home restarts on its own. Where it waits(), it goes in
+     * once Home is out of sight; asked again meanwhile, it leaves the waiting one be.
      */
     void install() {
         File apk = apkFile();
         if (readyVersion() == null) return;
         PackageInstaller installer = ctx.getPackageManager().getPackageInstaller();
+        boolean waits = waits();
+        if (waits) {
+            int waiting = prefs().getInt(WAITING_SESSION, -1);
+            try {
+                if (waiting != -1 && installer.getSessionInfo(waiting) != null) return;
+            } catch (RuntimeException ignored) {
+            }
+        }
         try {
             PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(
                     PackageInstaller.SessionParams.MODE_FULL_INSTALL);
@@ -222,17 +255,29 @@ final class Updater {
                 // Android kills this process to replace it, and some TVs (TCL UnionTV) then bring up the task
                 // behind Home, Netflix as a rule, instead of the new Home: UpdateReceiver.Replaced starts it.
                 // commit(), not apply(): the process may be gone before an apply reaches the disk.
-                prefs().edit().putLong(INSTALLING_AT, System.currentTimeMillis()).commit();
-                Intent done = new Intent(ctx, UpdateReceiver.class).setAction(UpdateReceiver.ACTION)
-                        .putExtra(UpdateReceiver.EXTRA_SELF, true);
-                PendingIntent pi = PendingIntent.getBroadcast(ctx, id, done,
-                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
-                session.commit(pi.getIntentSender());
+                prefs().edit().putLong(INSTALLING_AT, System.currentTimeMillis())
+                        .putInt(WAITING_SESSION, waits ? id : -1).commit();
+                if (!waits) session.commit(statusReceiver(id));
+            }
+            // After the session is closed: Android seals and commits it itself once no window of the launcher is
+            // on top (another app in front, or the screen off).
+            if (waits && android.os.Build.VERSION.SDK_INT >= 34) {
+                installer.commitSessionAfterInstallConstraintsAreMet(id, statusReceiver(id),
+                        new PackageInstaller.InstallConstraints.Builder().setAppNotTopVisibleRequired().build(), WAIT_MS);
+                Log.i(TAG, "update waits for Home to be out of sight: " + readyVersion());
             }
         } catch (Exception e) {
             Log.w(TAG, "install failed: " + e);
             android.widget.Toast.makeText(ctx, R.string.update_failed, android.widget.Toast.LENGTH_LONG).show();
         }
+    }
+
+    /** Where Android tells how the install went (UpdateReceiver). */
+    private android.content.IntentSender statusReceiver(int session) {
+        Intent done = new Intent(ctx, UpdateReceiver.class).setAction(UpdateReceiver.ACTION)
+                .putExtra(UpdateReceiver.EXTRA_SELF, true);
+        return PendingIntent.getBroadcast(ctx, session, done,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE).getIntentSender();
     }
 
     /** The download Android just refused goes; for good (never fetched again) unless the TV only lacked space. */
