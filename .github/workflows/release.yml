@@ -43,7 +43,9 @@ concurrency:
 
 jobs:
   release:
-    if: github.actor != 'github-actions[bot]'
+    # A push by the workflow's own token (its version commit) never releases. A dispatch always does: the auto-merge
+    # (merge-when-green) starts this run with the workflow's token too, so its actor is the bot as well.
+    if: github.event_name == 'workflow_dispatch' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     env:
       # SHA-256 of the release certificate every TV now trusts; a build signed otherwise is never published.
