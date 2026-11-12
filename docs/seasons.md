@@ -21,8 +21,9 @@ motion; the screensaver or a dark screen ends it.
 
 ## Cost
 
-It is one view over Home drawn about 30 times a second while Home is on the screen: a few dozen circles, lines and
-small paths a frame, nothing allocated per frame. On the XGIMI, whose GPU redraws the whole screen every frame, that
+It is one view over Home drawn about 30 times a second while Home is on the screen, nothing allocated per frame. Rain,
+snow and splashes go out in a few batched calls (one per depth layer), not one per drop: per-drop calls made issuing
+the frame the slow part on the XGIMI (moving along the dock: 40 ms median frame, 147 of 257 frames slow to issue). On the XGIMI, whose GPU redraws the whole screen every frame, that
 keeps Home drawing all the time it is up; the switch in Launcher settings turns it off where that is too much.
 
 ## Code

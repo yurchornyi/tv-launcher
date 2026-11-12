@@ -266,7 +266,7 @@ final class AudioBanner {
      */
     private static Drawable base(int height) {
         GradientDrawable g = new GradientDrawable();
-        g.setColor(0xD914161A);
+        g.setColor(0xF20A0B0D);
         g.setCornerRadius(height / 2f);
         return g;
     }

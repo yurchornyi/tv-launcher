@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Menus, panels and dialogs over Home: the top bar buttons' own glass (pill_bg, icon_button_bg: the same gradient
-     and hairline), laid over a dark scrim. Bare, as on a button, it let a bright poster through behind the words. -->
+     and hairline), over a near-black scrim, so a menu looks as a button does over the dark top of the screen. Bare,
+     or over a lighter scrim (85%), it let the tiles' logos (KIK, Spotify) through behind the words. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
         <shape android:shape="rectangle">
-            <solid android:color="#D914161A" />
+            <solid android:color="#F20A0B0D" />
             <corners android:radius="20dp" />
         </shape>
     </item>
