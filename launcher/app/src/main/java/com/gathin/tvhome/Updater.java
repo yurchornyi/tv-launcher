@@ -42,13 +42,12 @@ final class Updater {
     /** When install() handed a build to Android (prefs "updater"): the replaced build then starts Home again. */
     static final String INSTALLING_AT = "installing_at";
     /**
-     * The session waiting for Home to be out of sight (prefs "updater"; Android 14+, waits()): an update replaces
-     * the launcher only while another app is in front or the screen is off, so nobody sees the app behind Home
-     * (KIK, Netflix) come up for the seconds Android needs to swap it.
+     * install() went in with nothing of the launcher on the screen (prefs "updater"): another app in front, which
+     * then stays, or the screen off, where Home comes back (UpdateReceiver.Replaced).
      */
-    static final String WAITING_SESSION = "waiting_session";
-    /** How long a waiting update may wait for Home to go out of sight: the most Android allows. */
-    private static final long WAIT_MS = 7 * 24 * 60 * 60 * 1000L;
+    static final String INSTALLING_AWAY = "installing_away";
+    /** 1.35 and 1.36 marked an install that had waited for Home to go out of sight so (UpdateReceiver.Replaced). */
+    static final String WAITED_BEFORE = "waiting_session";
 
     private final Context ctx;
     private final String url;
@@ -201,38 +200,57 @@ final class Updater {
     }
 
     /**
-     * The update waits for Home to be out of sight before it goes in (Android 14 lets an installer ask for that):
-     * Android takes the launcher away for a few seconds to swap it, and on screen that showed the app behind Home.
+     * An update found on its own waits for Home to be out of sight (installIfAway, the screen going off): Android
+     * takes the launcher away for a few seconds to swap it, and with Home on the screen that showed the app behind
+     * it (KIK). Android 14's install constraints were meant for this, but they did not work for a launcher: Android
+     * looks again only when the app's importance crosses "foreground service", which Home never does (its own
+     * services hold it there, in front or behind another app), or after half an hour with the screen off, so the
+     * update waited for days.
      */
     boolean waits() {
         return android.os.Build.VERSION.SDK_INT >= 34 && silent();
     }
 
-    /** The person asked for the update (a button): install(), saying when it goes in if it waits. */
+    /** Nothing of the launcher on the screen: another app in front, or the screen off. */
+    static boolean outOfSight() {
+        android.app.ActivityManager.RunningAppProcessInfo me = new android.app.ActivityManager.RunningAppProcessInfo();
+        android.app.ActivityManager.getMyMemoryState(me);
+        return me.importance > android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND;
+    }
+
+    /** A downloaded update that waits() goes in now if nothing of the launcher is on the screen. */
+    boolean installIfAway() {
+        if (!waits() || readyVersion() == null || !outOfSight()) return false;
+        Log.i(TAG, "Home out of sight: installing " + readyVersion());
+        install(true);
+        return true;
+    }
+
+    /**
+     * The person asked for the update (a button): in it goes at once (owner, 13.11: pressed, it must install, not
+     * wait). Home is gone for the few seconds Android takes and comes back by itself.
+     */
     void installAsked() {
-        install();
-        if (waits() && readyVersion() != null) {
-            android.widget.Toast.makeText(ctx, R.string.update_when_away, android.widget.Toast.LENGTH_LONG).show();
-        }
+        String version = readyVersion();
+        if (version == null) return;
+        android.widget.Toast.makeText(ctx, ctx.getString(R.string.update_installing, version),
+                android.widget.Toast.LENGTH_LONG).show();
+        install(false);
     }
 
     /**
      * Hands the downloaded APK to Android's installer, asking for no confirmation; when Android still wants one it
-     * comes back through UpdateReceiver. After the install Home restarts on its own. Where it waits(), it goes in
-     * once Home is out of sight; asked again meanwhile, it leaves the waiting one be.
+     * comes back through UpdateReceiver. away: nothing of the launcher is on the screen (UpdateReceiver.Replaced
+     * then leaves the app in front be); otherwise Home starts again once the new build is in.
      */
-    void install() {
+    void install(boolean away) {
         File apk = apkFile();
         if (readyVersion() == null) return;
+        // Home going out of sight and the screen going off a moment later: the first one is already going in.
+        long since = System.currentTimeMillis() - prefs().getLong(INSTALLING_AT, 0);
+        if (away && since >= 0 && since < 60_000) return;
         PackageInstaller installer = ctx.getPackageManager().getPackageInstaller();
-        boolean waits = waits();
-        if (waits) {
-            int waiting = prefs().getInt(WAITING_SESSION, -1);
-            try {
-                if (waiting != -1 && installer.getSessionInfo(waiting) != null) return;
-            } catch (RuntimeException ignored) {
-            }
-        }
+        abandonLeftovers(installer);
         try {
             PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(
                     PackageInstaller.SessionParams.MODE_FULL_INSTALL);
@@ -256,19 +274,28 @@ final class Updater {
                 // behind Home, Netflix as a rule, instead of the new Home: UpdateReceiver.Replaced starts it.
                 // commit(), not apply(): the process may be gone before an apply reaches the disk.
                 prefs().edit().putLong(INSTALLING_AT, System.currentTimeMillis())
-                        .putInt(WAITING_SESSION, waits ? id : -1).commit();
-                if (!waits) session.commit(statusReceiver(id));
-            }
-            // After the session is closed: Android seals and commits it itself once no window of the launcher is
-            // on top (another app in front, or the screen off).
-            if (waits && android.os.Build.VERSION.SDK_INT >= 34) {
-                installer.commitSessionAfterInstallConstraintsAreMet(id, statusReceiver(id),
-                        new PackageInstaller.InstallConstraints.Builder().setAppNotTopVisibleRequired().build(), WAIT_MS);
-                Log.i(TAG, "update waits for Home to be out of sight: " + readyVersion());
+                        .putBoolean(INSTALLING_AWAY, away).commit();
+                session.commit(statusReceiver(id));
             }
         } catch (Exception e) {
             Log.w(TAG, "install failed: " + e);
             android.widget.Toast.makeText(ctx, R.string.update_failed, android.widget.Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /**
+     * The launcher's own sessions that never went in: 1.35 and 1.36 left one sealed, waiting on install constraints
+     * whose answer died with their process. KIK's (AppInstaller) carry KIK's name and stay.
+     */
+    private void abandonLeftovers(PackageInstaller installer) {
+        try {
+            for (PackageInstaller.SessionInfo s : installer.getMySessions()) {
+                if (!ctx.getPackageName().equals(s.getAppPackageName())) continue;
+                if (android.os.Build.VERSION.SDK_INT >= 29 && s.isCommitted()) continue;
+                installer.abandonSession(s.getSessionId());
+            }
+        } catch (RuntimeException e) {
+            Log.w(TAG, "old sessions stay: " + e);
         }
     }
 

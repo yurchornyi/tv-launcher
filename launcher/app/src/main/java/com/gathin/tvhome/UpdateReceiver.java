@@ -28,9 +28,6 @@ public class UpdateReceiver extends BroadcastReceiver {
                 } catch (RuntimeException ignored) {
                 }
             }
-        } else if (status != PackageInstaller.STATUS_SUCCESS && waitedTooLong(context, intent, status)) {
-            // An update that waited a week for Home to go out of sight is tried afresh later: not refused, no word.
-            return;
         } else if (status != PackageInstaller.STATUS_SUCCESS) {
             // A build Android refused would otherwise stay "ready" for good: no newer one would be fetched, and each
             // return to Home would try it again. One the person turned down (aborted) stays on offer.
@@ -43,15 +40,6 @@ public class UpdateReceiver extends BroadcastReceiver {
             Toast.makeText(context, context.getString(text) + (why != null ? "\n" + why : ""),
                     Toast.LENGTH_LONG).show();
         }
-    }
-
-    /** The waiting session (Updater.WAITING_SESSION) ended without going in: its wait ran out. */
-    private static boolean waitedTooLong(Context context, Intent intent, int status) {
-        android.content.SharedPreferences p = context.getSharedPreferences("updater", Context.MODE_PRIVATE);
-        int session = intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -2);
-        if (status != PackageInstaller.STATUS_FAILURE || session != p.getInt(Updater.WAITING_SESSION, -1)) return false;
-        p.edit().remove(Updater.WAITING_SESSION).apply();
-        return true;
     }
 
     /**
@@ -67,15 +55,17 @@ public class UpdateReceiver extends BroadcastReceiver {
             if (updater.readyVersion() == null) updater.clearReady();   // the installed download need not stay
             android.content.SharedPreferences p = context.getSharedPreferences("updater", Context.MODE_PRIVATE);
             long at = p.getLong(Updater.INSTALLING_AT, 0);
-            boolean waited = p.getInt(Updater.WAITING_SESSION, -1) != -1;
-            p.edit().remove(Updater.INSTALLING_AT).remove(Updater.WAITING_SESSION).apply();
             long since = System.currentTimeMillis() - at;
-            if (waited) {
+            boolean recent = at != 0 && since >= 0 && since <= 10 * 60 * 1000L;
+            boolean away = (recent && p.getBoolean(Updater.INSTALLING_AWAY, false))
+                    || p.getInt(Updater.WAITED_BEFORE, -1) != -1;
+            p.edit().remove(Updater.INSTALLING_AT).remove(Updater.INSTALLING_AWAY).remove(Updater.WAITED_BEFORE).apply();
+            if (away) {
                 // It went in while Home was out of sight: with another app in front, that app stays; with the screen
                 // off, Home must be what comes back, not the app that stood behind it.
                 android.os.PowerManager pm = context.getSystemService(android.os.PowerManager.class);
                 if (pm == null || pm.isInteractive()) return;
-            } else if (at == 0 || since < 0 || since > 10 * 60 * 1000L) {
+            } else if (!recent) {
                 return;
             }
             Intent home = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)

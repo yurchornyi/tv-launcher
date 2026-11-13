@@ -124,6 +124,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     /** Top shelf art and the fade over it (top_shelf_art). */
     private ImageView heroArt;
     private View heroFade;
+    /** The glow, the shelf art and its fade together: fades them as one when focus leaves the dock and comes back. */
+    private BackdropLayout backdrop;
     private boolean topShelfArt;
     /** The drawable the shelf shows now, to skip a crossfade to the same app. */
     private Drawable heroArtShown;
@@ -329,7 +331,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 updater.check(true);
             } else {
                 android.util.Log.i("TvHome", "screen off: installing " + updater.readyVersion());
-                updater.install();
+                updater.install(true);
             }
         }
     };
@@ -345,7 +347,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             if (idle) {
                 // Home restarts for a moment as the new build takes over; with nobody at the remote it goes unseen.
                 android.util.Log.i("TvHome", "idle Home: installing " + updater.readyVersion());
-                updater.install();
+                updater.install(false);
             } else {
                 handler.postDelayed(this, 30_000);
             }
@@ -354,15 +356,26 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     /**
      * A build is downloaded: where Android installs it without asking, Home does so once nobody is at the remote
-     * (autoUpdate); elsewhere it offers it over Home, as KIK does (offerUpdate).
+     * (autoUpdate), or on Android 14 once Home is out of sight (Updater.waits: installAway, the screen going off);
+     * elsewhere it offers it over Home, as KIK does (offerUpdate).
      */
     private void onUpdateReady() {
         if (isDestroyed()) return;   // a download that finished after a recreate() reports to the old instance
         handler.removeCallbacks(autoUpdate);
         handler.removeCallbacks(updateOffer);
-        if (updater.silent()) handler.postDelayed(autoUpdate, 30_000);
+        if (updater.waits()) updater.installIfAway();   // downloaded while another app was in front
+        else if (updater.silent()) handler.postDelayed(autoUpdate, 30_000);
         else handler.postDelayed(updateOffer, 6000);
     }
+
+    /**
+     * Home just went out of sight: an update waiting for that (Updater.waits) goes in now, behind the app in front.
+     * Checked a moment later, by the process's own importance: Launcher settings over Home is ours too, and an
+     * install then would show the app behind both.
+     */
+    private final Runnable installAway = () -> {
+        if (updater != null) updater.installIfAway();
+    };
 
     /** When Home last offered an update: "Later" holds the next offer off for half an hour. */
     private long updateOfferedAt;
@@ -817,6 +830,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         // dock_title false: the name above the dock never shows; the glow still follows the dock.
         if (!cfg.dockTitle) heroName.setVisibility(View.GONE);
         heroFade = findViewById(R.id.heroFade);
+        backdrop = findViewById(R.id.backdrop);
         topShelfArt = cfg.topShelfArt;
         shelfTitle = findViewById(R.id.shelfTitle);
         searchNote = findViewById(R.id.searchNote);
@@ -1356,6 +1370,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onStart() {
         super.onStart();
+        handler.removeCallbacks(installAway);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(packageReceiver, packageFilter, Context.RECEIVER_NOT_EXPORTED);
         } else {
@@ -1505,6 +1520,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             glass.setAlpha(0f);
             heroShown = false;
             heroName.setAlpha(0f);
+            backdrop.finishFade();
             ambient.setAlpha(0f);
             hideShelfArt(false);
         }
@@ -1615,6 +1631,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onStop() {
         super.onStop();
+        handler.removeCallbacks(installAway);
+        handler.postDelayed(installAway, 1500);
         unregisterReceiver(packageReceiver);
         handler.removeCallbacks(packagesChanged);
         rebuildOnResume = true;
@@ -1625,6 +1643,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             searchLabels = null;
         }
         // Another app is in front: let go of the big pictures (a backdrop is ~2 MB); they reload when Home returns.
+        backdrop.finishFade();
         heroArt.animate().cancel();
         heroArt.setImageDrawable(null);
         heroArt.setAlpha(0f);
@@ -2143,6 +2162,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 if (!animations || reducedMotion || !firstFrameShown) grid.scrollBy(0, dy);
                 else grid.smoothScrollBy(0, dy);
             }
+            // Back from the grid: the pictures come in as one, set straight to their look (BackdropLayout.fadeIn).
+            if (!heroShown && animations && !reducedMotion && firstFrameShown && homeInFront && !searching) {
+                backdrop.fadeIn(300);
+            }
             showHero(position, scroll ? r.top - dy : r.top);
         } else {
             // A plain grid (dock_row false) has no dock to carry the glow, so it follows every tile there.
@@ -2168,6 +2191,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private void showHero(int position, float dockTopInRoot) {
         lastDockTop = dockTopInRoot;
         lastHeroPosition = position;
+        // Shown from anywhere but the dock coming back (onTileFocused): a fade-out still going ends at once.
+        if (!backdrop.fadingIn()) backdrop.finishFade();
         // Not while another app is in front (onPause moving focus would start a carousel nobody sees).
         if (searching || !homeInFront) return;
         boolean card = nowPlayingOver(position);
@@ -2212,7 +2237,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             heroName.setTranslationX(0f);
             heroName.animate().alpha(1f).setDuration(260).start();
             setAmbient(color);
-            ambient.animate().alpha(1f).setDuration(600).start();
+            if (backdrop.fadingIn()) ambient.setAlpha(1f);
+            else ambient.animate().alpha(1f).setDuration(600).start();
             heroShown = true;
         } else if (changed) {
             if (advancedEffects) heroName.animate().cancel();
@@ -2330,7 +2356,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         heroFade.animate().cancel();
         boolean wasShown = heroArtShown != null && heroArt.getAlpha() > 0f;
         heroArtShown = art;
-        if (!animations || reducedMotion) {
+        if (!animations || reducedMotion || backdrop.fadingIn()) {
             heroArt.setScaleType(ImageView.ScaleType.FIT_XY);
                 heroArt.setImageDrawable(art);
             heroArt.setAlpha(1f);
@@ -4201,7 +4227,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             heroFade.animate().cancel();
             shelfTitle.animate().cancel();
             heroFade.setAlpha(1f);
-            boolean animate = animations && !reducedMotion && heroArt.getAlpha() > 0f;
+            boolean animate = animations && !reducedMotion && heroArt.getAlpha() > 0f && !backdrop.fadingIn();
             Runnable title = () -> {
                 String tidy = ShelfText.clean(item.title);
                 boolean song = ShelfFeed.music(pkg);
@@ -4437,7 +4463,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             // A poster on the right would sink into the fade's dark lower half; its own darkened colours behind
             // keep the words readable with half the fade.
             heroFade.setAlpha(npBackdrop instanceof PosterBackdrop ? 0.5f : 1f);
-            if (animations && !reducedMotion) heroArt.animate().alpha(1f).setDuration(400).start();
+            if (animations && !reducedMotion && !backdrop.fadingIn()) heroArt.animate().alpha(1f).setDuration(400).start();
             else heroArt.setAlpha(1f);
         }
         boolean arriving = npCard.getVisibility() != View.VISIBLE || npCard.getAlpha() < 1f;
@@ -4600,6 +4626,19 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         hideNowPlaying(false);
         heroName.animate().cancel();
         heroName.setAlpha(0f);
+        if (animations && !reducedMotion && homeInFront && (heroShown || heroArtShown != null)) {
+            // The pictures go as one, held as they are (BackdropLayout.fadeOut). Faded one by one over the
+            // scrolling grid, the dark fade under the art went before the art: it lit up behind the second row.
+            stopFeed();
+            heroArtShown = null;
+            heroShown = false;
+            stopAmbientAnimation();
+            ambient.animate().cancel();
+            heroArt.animate().cancel();
+            heroFade.animate().cancel();
+            backdrop.fadeOut(260, this::clearBackdrop);
+            return;
+        }
         hideShelfArt(animations);
         if (!heroShown) return;
         stopAmbientAnimation();
@@ -4607,6 +4646,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         heroShown = false;
         if (animations) ambient.animate().alpha(0f).setDuration(reducedMotion ? 140 : 300).start();
         else ambient.setAlpha(0f);
+    }
+
+    /** Each picture behind the shelf out of sight, once BackdropLayout.fadeOut has faded them together. */
+    private void clearBackdrop() {
+        heroArt.setAlpha(0f);
+        heroFade.setAlpha(0f);
+        ambient.setAlpha(0f);
     }
 
     private void hideGlass() {
