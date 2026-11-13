@@ -15,8 +15,9 @@ import java.util.Random;
  * Snow, rain, leaves, blossom or fireflies across Home (Season picks which). It knows where the app tiles, the shelf's
  * pill, the Now Playing card and a channel row's logos are (Tiles): rain bursts on their top edges, beads run down
  * their faces and hang from their lower edges until they drip; snow settles on them in a cap; a leaf or a petal rests
- * on an edge for a moment. Drawn over Home about 30 times a second while Home is on the screen (MainActivity), keys
- * and all, allocating nothing per frame. Takes no focus, keys or accessibility.
+ * on an edge for a moment. On a holiday it also draws the holiday's decorations and its walking character over the
+ * top row of tiles (HolidayScene). Drawn over Home about 30 times a second while Home is on the screen (MainActivity),
+ * keys and all, allocating nothing per frame. Takes no focus, keys or accessibility.
  */
 public final class SeasonView extends View {
 
@@ -26,6 +27,11 @@ public final class SeasonView extends View {
          * at most out.length / 5, and returns how many. An id stays with its box while it moves (adapter position).
          */
         int fill(float[] out);
+
+        /** The focused tile's id (its adapter position), or -1: where a holiday's character stops. */
+        default int focused() {
+            return -1;
+        }
     }
 
     /**
@@ -38,8 +44,8 @@ public final class SeasonView extends View {
     private static final int MAX_BOXES = 48, SPLASHES = 64, RUNNERS = 24, DRIPS = 24;
     /** The next frame is asked this long after one is drawn: about 30 a second at 60 Hz, half the GPU work. */
     private static final long FRAME_MS = 20;
-    /** How often the boxes are read again (a scroll, a focused tile growing). */
-    private static final long BOXES_MS = 250;
+    /** How often the boxes are read again (a scroll, a focused tile growing); oftener under a holiday's decorations. */
+    private static final long BOXES_MS = 250, HOLIDAY_BOXES_MS = 80;
     private static final int[] LEAVES = {0xFFE07A1F, 0xFFC4471B, 0xFFD9A53A, 0xFF9C4A1A, 0xFFB8862B, 0xFFE3B04B};
     private static final int[] PETALS = {0xFFFFD1DC, 0xFFFFB7C9, 0xFFFDE2EA, 0xFFF8C8D8, 0xFFFFF0F4};
     private static final int[] GLOWS = {0xFFFFE7A3, 0xFFFFF4C2, 0xFFFFD36E};
@@ -56,7 +62,10 @@ public final class SeasonView extends View {
     private boolean heavy, running, reseed;
     private Tiles source;
     private final float[] boxes = new float[MAX_BOXES * 5];
-    private int boxCount;
+    private int boxCount, focusedId = -1;
+    private Holiday.Day holiday;
+    private HolidayScene holidayScene;
+    private Runnable onMoment;
     private long boxesAt, last;
     private float clock;
 
@@ -127,11 +136,31 @@ public final class SeasonView extends View {
         return running;
     }
 
+    /** What runs when a holiday's character has walked off the screen (posted, not from inside a frame). */
+    void setOnMoment(Runnable onMoment) {
+        this.onMoment = onMoment;
+    }
+
     /** Starts the scene, or switches to it, fading in. */
     void start(Season.Scene scene, boolean heavy) {
+        start(scene, heavy, null, false);
+    }
+
+    /**
+     * The scene, and on a holiday its decorations; `moment`: the holiday's character walks the tiles now (one that is
+     * walking goes on).
+     */
+    void start(Season.Scene scene, boolean heavy, Holiday.Day holiday, boolean moment) {
+        boolean fresh = !running;
         if (!running || scene != this.scene || heavy != this.heavy) reseed = true;
         this.scene = scene;
         this.heavy = heavy;
+        this.holiday = holiday;
+        if (holiday != null) {
+            if (holidayScene == null) holidayScene = new HolidayScene(d);
+            holidayScene.begin(holiday, fresh, moment);
+            boxesAt = 0;
+        }
         if (!running) {
             running = true;
             Arrays.fill(cap, 0f);   // last time's snow has melted
@@ -189,11 +218,16 @@ public final class SeasonView extends View {
         float dt = Math.min(0.1f, Math.max(0f, (now - last) / 1000f));
         last = now;
         clock += dt;
-        if (now - boxesAt >= BOXES_MS) {
+        if (now - boxesAt >= (holiday != null ? HOLIDAY_BOXES_MS : BOXES_MS)) {
             boxCount = source == null ? 0 : Math.max(0, Math.min(MAX_BOXES, source.fill(boxes)));
+            focusedId = source == null ? -1 : source.focused();
             boxesAt = now;
         }
         drawCaps(c);
+        if (holiday != null) {
+            holidayScene.draw(c, dt, boxes, boxCount, focusedId, w, h);
+            if (holidayScene.takeFinished() && onMoment != null) post(onMoment);
+        }
         if (scene == Season.Scene.RAIN || scene == Season.Scene.STORM) rain(c, dt, w, h);
         else fall(c, dt, w, h);
         removeCallbacks(next);

@@ -19,6 +19,8 @@ motion; the screensaver or a dark screen ends it.
 
 **Turn it off**: hold OK on Settings, Launcher settings, Motion, «Погода й пори року».
 
+On a holiday the holiday takes its place: its decorations, its character and its own sky ([holidays.md](holidays.md)).
+
 ## Cost
 
 It is one view over Home drawn about 30 times a second while Home is on the screen, nothing allocated per frame, and
