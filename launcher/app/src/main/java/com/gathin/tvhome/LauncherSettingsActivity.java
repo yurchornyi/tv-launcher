@@ -35,7 +35,8 @@ import java.util.List;
 public final class LauncherSettingsActivity extends Activity {
 
     static final String EXTRA_THEN = "then", EXTRA_CHANGED = "changed";
-    static final String THEN_ADD = "add", THEN_REORDER = "reorder", THEN_MODULES = "modules";
+    static final String THEN_ADD = "add", THEN_REORDER = "reorder", THEN_MODULES = "modules",
+            THEN_HOLIDAYS = "holidays";
     private static final int ACCOUNT_REQUEST = 7;
     private static final int[] SLEEP_STEPS = {0, 15, 30, 45, 60, 90, 120};
     private static final PathInterpolator EASE = new PathInterpolator(0.2f, 0f, 0f, 1f);
@@ -112,8 +113,8 @@ public final class LauncherSettingsActivity extends Activity {
     private SharedPreferences choices;
     private int columns;
     private boolean animations, advancedEffects, reducedMotion, moduleCards, showInputs;
-    /** Snow, rain, leaves... over an idle Home (Season); a choice kept on this TV only. */
-    private boolean seasonScene;
+    /** Snow, rain, leaves... over an idle Home (Season), and the holidays (Holiday); choices kept on this TV only. */
+    private boolean seasonScene, holidayScene;
     /** A setting changed: Home rebuilds when this screen closes. */
     private boolean changed;
     private Typeface medium, regular, light;
@@ -140,6 +141,7 @@ public final class LauncherSettingsActivity extends Activity {
         moduleCards = config.moduleCards;
         showInputs = config.showInputs;
         seasonScene = Season.enabled(this);
+        holidayScene = Holiday.enabled(this);
         updater = new Updater(this, config.updateUrl, version -> {
             updateState = getString(R.string.update_to, version);
             refresh();
@@ -319,6 +321,17 @@ public final class LauncherSettingsActivity extends Activity {
         });
         weather.shown = () -> getString(seasonScene && animations && !reducedMotion ? R.string.on : R.string.off);
         weather.enabled = () -> animations && !reducedMotion;
+        Row holidays = row(list, getString(R.string.holiday_scene), getString(R.string.holiday_scene_hint), null, dir -> {
+            holidayScene = !holidayScene;
+            choices.edit().putBoolean(Holiday.KEY, holidayScene).apply();
+        });
+        holidays.shown = () -> getString(holidayScene && animations && !reducedMotion ? R.string.on : R.string.off);
+        holidays.enabled = () -> animations && !reducedMotion;
+        Row showHolidays = row(list, getString(R.string.holiday_demo), getString(R.string.holiday_demo_hint), () -> {
+            if (animations && !reducedMotion) back(THEN_HOLIDAYS);
+        }, null);
+        showHolidays.shown = () -> "";
+        showHolidays.enabled = () -> animations && !reducedMotion;
 
         section(list, R.string.settings_section_tv, false);
         Row sleep = row(list, getString(R.string.sleep_timer), getString(R.string.sleep_hint), null, this::stepSleep);

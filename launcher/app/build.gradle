@@ -57,6 +57,13 @@ android {
         }
     }
 
+    packaging {
+        resources {
+            // Kotlin's metadata that AndroidX brings along: only kotlin-reflect reads it, and this app is Java (about
+            // 10 KB of the APK's 512, which the holidays' drawing needed).
+            excludes += ['kotlin/**', 'META-INF/*.kotlin_module']
+        }
+    }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17

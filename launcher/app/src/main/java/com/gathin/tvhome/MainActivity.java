@@ -982,7 +982,19 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         grid = findViewById(R.id.grid);
         // Over the tiles and the shelf, under the full-screen player and what opens over Home.
         season = new SeasonView(this);
-        season.setTiles(this::seasonBoxes);
+        season.setTiles(new SeasonView.Tiles() {
+            @Override
+            public int fill(float[] out) {
+                return seasonBoxes(out);
+            }
+
+            @Override
+            public int focused() {
+                View f = grid.getFocusedChild();
+                return f == null ? -1 : grid.getChildAdapterPosition(f);
+            }
+        });
+        season.setOnMoment(this::holidayMomentDone);
         root.addView(season, root.indexOfChild(ambientScreen), new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         rtlAppGrid = getResources().getBoolean(R.bool.rtl_app_grid);
@@ -1331,6 +1343,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        // adb shell am start -n com.gathin.tvhome/.MainActivity --ez holiday_demo true: «Показати свята», for a test.
+        if (intent != null && intent.getBooleanExtra(EXTRA_HOLIDAY_DEMO, false)) startHolidayDemo();
         if (openLauncherSettingsIfAsked(intent)) return;
         if (intent == null || !intent.hasCategory(Intent.CATEGORY_HOME)) return;
         grid.scrollToPosition(0);
@@ -5548,13 +5562,58 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     private boolean seasonAllowed() {
         return animations && !reducedMotion && homeInFront && hasWindowFocus() && !searching && !reordering
-                && ambientScreen.getVisibility() != View.VISIBLE && Season.enabled(this) && !isFinishing();
+                && ambientScreen.getVisibility() != View.VISIBLE && (Season.enabled(this) || holidayNow() != null)
+                && !isFinishing();
     }
 
-    /** The season's scene, or the weather's when it rains or snows outside (the top bar's reading). */
+    /**
+     * The season's scene, or the weather's when it rains or snows outside (the top bar's reading); on a holiday, the
+     * holiday's (Holiday): its decorations on the tiles, and its character walking them when Home comes back, at most
+     * every half hour.
+     */
     private void startSeason() {
         int code = weather != null ? Season.code(weather.cached()) : -1;
-        season.start(Season.pick(LocalDate.now().getMonthValue(), code), Season.heavy(code));
+        Holiday.Day day = holidayNow();
+        if (day != null) {
+            boolean moment = demoPending || (!season.running() && Holiday.takeMoment(SystemClock.elapsedRealtime()));
+            demoPending = false;
+            season.start(Holiday.scene(day, code), false, day, moment);
+        } else if (Season.enabled(this)) {
+            season.start(Season.pick(LocalDate.now().getMonthValue(), code), Season.heavy(code));
+        } else {
+            season.stop(true);
+        }
+    }
+
+    // ---- holidays (Holiday, HolidayScene in SeasonView) ---------------------------------------------------------
+
+    static final String EXTRA_HOLIDAY_DEMO = "holiday_demo";
+    /** «Показати свята»: which holiday is showing now (Holiday.DEMO), -1 when none; the next one's walk is due. */
+    private int holidayDemo = -1;
+    private boolean demoPending;
+
+    /** Today's holiday with the switch on, or the one «Показати свята» shows now; else null. */
+    private Holiday.Day holidayNow() {
+        if (holidayDemo >= 0) return Holiday.DEMO[holidayDemo];
+        return Holiday.enabled(this) ? Holiday.on(LocalDate.now()) : null;
+    }
+
+    /** Every holiday in turn, each with its character, from the first (Launcher settings, «Показати свята»). */
+    private void startHolidayDemo() {
+        holidayDemo = 0;
+        demoPending = true;
+        if (season != null && season.running()) startSeason();
+    }
+
+    /** A holiday's character has walked off the screen: «Показати свята» goes on to the next one, or ends. */
+    private void holidayMomentDone() {
+        if (holidayDemo < 0) return;
+        holidayDemo++;
+        if (holidayDemo >= Holiday.DEMO.length) holidayDemo = -1;
+        else demoPending = true;
+        if (season == null || !season.running()) return;
+        if (seasonAllowed()) startSeason();
+        else season.stop(true);
     }
 
     /**
@@ -5924,6 +5983,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             case LauncherSettingsActivity.THEN_ADD: onLibraryRequested(); break;
             case LauncherSettingsActivity.THEN_REORDER: toggleReorder(); break;
             case LauncherSettingsActivity.THEN_MODULES: if (moduleCards) showModuleCards(); break;
+            case LauncherSettingsActivity.THEN_HOLIDAYS: startHolidayDemo(); break;
             default: break;
         }
     }

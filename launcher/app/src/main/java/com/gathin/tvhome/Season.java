@@ -9,7 +9,8 @@ import android.content.Context;
  */
 final class Season {
 
-    enum Scene { SNOW, RAIN, STORM, LEAVES, BLOSSOM, FIREFLIES }
+    /** NONE: nothing falls (a holiday's own day, HolidayScene). */
+    enum Scene { SNOW, RAIN, STORM, LEAVES, BLOSSOM, FIREFLIES, NONE }
 
     /** The settings key (Config.SETTINGS_NAME). */
     static final String KEY = "season_scene";
@@ -40,6 +41,7 @@ final class Season {
             case STORM: return 130;
             case LEAVES: return 20;
             case BLOSSOM: return 32;
+            case NONE: return 0;
             default: return 26;   // fireflies
         }
     }
@@ -59,7 +61,8 @@ final class Season {
         return ctx.getSharedPreferences(Config.SETTINGS_NAME, Context.MODE_PRIVATE).getBoolean(KEY, true);
     }
 
-    private static boolean snow(int code) {
+    /** It snows outside. */
+    static boolean snow(int code) {
         return (code >= 71 && code <= 77) || code == 85 || code == 86;
     }
 
