@@ -108,9 +108,12 @@ Things that bit us or contributors, so they don't bite you. Commands use `tools/
   default this fork's GitHub releases) hourly, when the screen turns on and twice a day in the background over
   Wi-Fi, downloads a newer build and checks it as KIK does (SHA-256, package, version, signature). Where Android
   allows it the launcher installs it unasked while nobody is at the remote; elsewhere Home offers "Update / Later"
-  and Android asks once to confirm; the Settings menu keeps "Update to X". On Android 14 an update, pressed or not,
-  goes in only once Home is out of sight (another app in front, or the screen off): Android takes the launcher away
-  for a few seconds to swap it, and with Home on the screen that showed the app behind it (KIK, Netflix). A merge to main that changes the APK
+  and Android asks once to confirm; the Settings menu keeps "Update to X". Pressed, an update goes in at once and
+  Home comes back after a few seconds. On Android 14 one found on its own goes in only once Home is out of sight
+  (another app in front, or the screen off): Android takes the launcher away for a few seconds to swap it, and with
+  Home on the screen that showed the app behind it (KIK, Netflix). The launcher watches for that moment itself;
+  Android 14's install constraints looked again only after half an hour with the screen off, so an update waited
+  for days. A merge to main that changes the APK
   publishes the next version by itself (`.github/workflows/release.yml`, signed with the release key in the
   repository's secrets: a build signed otherwise is refused as foreign); `launcher/release.sh 2.7 "what changed"`
   publishes a chosen version or notes. `tools/kyivstar-channels.py` refreshes the Kyivstar TV channel list before a

@@ -10,7 +10,8 @@ import android.util.Log;
 
 /**
  * Looks for a launcher update twice a day over Wi-Fi, as KIK does, so a TV that keeps an app in front for days still
- * downloads a new build; Home installs or offers it the next time it comes up (Updater, MainActivity).
+ * downloads a new build; on Android 14 it goes in at once while Home is out of sight (Updater.installIfAway), elsewhere
+ * Home installs or offers it the next time it comes up (Updater, MainActivity).
  * Home schedules it on every start, so it needs no boot permission.
  */
 public class UpdateJob extends JobService {
@@ -40,7 +41,10 @@ public class UpdateJob extends JobService {
     public boolean onStartJob(JobParameters params) {
         new Thread(() -> {
             try {
-                new Updater(this, Config.load(this).updateUrl, version -> { }).checkBlocking();
+                Updater updater = new Updater(this, Config.load(this).updateUrl, version -> { });
+                updater.checkBlocking();
+                // Found while another app is in front (or the screen is off): in it goes now, unseen.
+                new android.os.Handler(android.os.Looper.getMainLooper()).post(updater::installIfAway);
             } catch (RuntimeException e) {
                 Log.w("TvHome.Updater", "update job failed: " + e);
             }
