@@ -4227,7 +4227,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             heroFade.animate().cancel();
             shelfTitle.animate().cancel();
             heroFade.setAlpha(1f);
-            boolean animate = animations && !reducedMotion && heroArt.getAlpha() > 0f && !backdrop.fadingIn();
+            boolean animate = animations && !reducedMotion && heroArt.getAlpha() > 0f && !MainActivity.this.backdrop.fadingIn();
             Runnable title = () -> {
                 String tidy = ShelfText.clean(item.title);
                 boolean song = ShelfFeed.music(pkg);
