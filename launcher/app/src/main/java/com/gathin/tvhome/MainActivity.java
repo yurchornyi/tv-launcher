@@ -701,10 +701,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private List<String> dockApps;
     /** fill_dock false: the dock can have empty slots, which reorder mode leaves out and restores afterwards. */
     private boolean fillDockLeavesSlots;
-    /** Edit-dock mode (Settings menu): a reorder session that swaps one chosen app into one dock place. */
-    private boolean dockEditing;
-    /** Dock place being changed in edit-dock mode, or -1 while the place is still being chosen. */
-    private int dockEditSlot = -1;
     private AppLibraryDialog appLibrary;
     private boolean libraryFocusPending;
     private RecyclerView.OnScrollListener pendingFocusScroll;
@@ -1799,7 +1795,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             return true;
         }
         if (!reordering) return super.dispatchKeyEvent(event);
-        if (dockEditing) return dispatchDockEdit(event);
         boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
         int code = event.getKeyCode();
         boolean ok = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER
@@ -1877,73 +1872,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         return true;
     }
 
-    /** Edit dock (Settings menu): focus goes to the first dock place, which OK then chooses. */
-    private void startDockEdit() {
-        if (reordering) endReorder();
-        if (!beginReorder()) return;
-        dockEditing = true;
-        dockEditSlot = -1;
-        focusTile(0);
-        Toast.makeText(this, R.string.dock_edit_hint, Toast.LENGTH_LONG).show();
-    }
-
-    /**
-     * Keys in edit-dock mode. First OK on a dock tile chooses that place (the other dock tiles dim) and focus moves
-     * to the grid; then OK on any tile swaps that app into the place, saves the order and ends the mode. Back goes
-     * one step back: from choosing the app to choosing the place, and from there out of the mode.
-     */
-    private boolean dispatchDockEdit(KeyEvent event) {
-        boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
-        int code = event.getKeyCode();
-        boolean ok = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER
-                || code == KeyEvent.KEYCODE_NUMPAD_ENTER;
-        boolean back = code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_ESCAPE;
-        if (back) {
-            if (!down) {
-                if (dockEditSlot >= 0) {
-                    int slot = dockEditSlot;
-                    dockEditSlot = -1;
-                    dimOthers();
-                    focusTile(slot);
-                } else {
-                    endReorder();
-                }
-            }
-            return true;
-        }
-        int pos = focusedTilePosition();
-        if (ok && pos >= 0) {
-            if (!down) {
-                int n = adapter.movableCount();
-                if (dockEditSlot < 0) {
-                    if (pos < Math.min(COLUMNS, n)) {
-                        dockEditSlot = pos;
-                        dimOthers();
-                        focusTile(Math.min(COLUMNS, n - 1));
-                        Toast.makeText(this, R.string.dock_edit_pick_app, Toast.LENGTH_LONG).show();
-                    }
-                } else if (pos < n) {
-                    swapIntoDock(dockEditSlot, pos);
-                }
-            }
-            return true;   // never opens the app while editing
-        }
-        return super.dispatchKeyEvent(event);   // arrows navigate as usual
-    }
-
-    /** Puts the app at pos into dock place slot, and the app that was there where the chosen one was; then saves. */
-    private void swapIntoDock(int slot, int pos) {
-        String slotKey = adapter.keyAt(slot);
-        if (pos != slot) {
-            keepScroll(() -> {
-                adapter.move(pos, slot);
-                adapter.move(adapter.positionOf(slotKey), pos);
-            });
-        }
-        endReorder();
-        refocusAfterLayout(slot);
-    }
-
     private void pickUp(int pos) {
         if (pos >= adapter.movableCount()) return;   // the "Default home" tile stays put
         movingKey = adapter.keyAt(pos);
@@ -1976,12 +1904,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         }
     }
 
-    /** A tile's alpha: dim unless it is the carried one, or, in edit-dock mode, a dock tile other than the chosen place. */
+    /** A tile's alpha: dim unless it is the carried one. */
     private float tileAlpha(int pos) {
         if (movingKey != null) {
             return pos != RecyclerView.NO_POSITION && movingKey.equals(adapter.keyAt(pos)) ? 1f : 0.45f;
         }
-        if (dockEditSlot >= 0 && pos >= 0 && pos < COLUMNS && pos != dockEditSlot) return 0.45f;
         return 1f;
     }
 
@@ -1991,8 +1918,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         swallowOkUp = false;
         singleMove = false;
         pickedFrom = -1;
-        dockEditing = false;
-        dockEditSlot = -1;
         drop();
         reordering = false;
         adapter.setReordering(false);
