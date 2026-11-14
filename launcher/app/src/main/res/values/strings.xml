@@ -7,7 +7,6 @@
     <string name="settings">Налаштування</string>
     <string name="choose_input">Джерела</string>
     <string name="connected">Підключено</string>
-    <string name="standby">Очікування</string>
     <string name="not_connected">Немає пристрою</string>
     <string name="live_tv">Телебачення</string>
     <string name="no_inputs">Джерел не знайдено</string>
@@ -50,11 +49,8 @@
     <string name="home_settings_help">Виберіть свій початковий головний екран, щоб перестати користуватися TV Launcher, або TV Launcher, щоб повернутися. Початковий лаунчер має бути увімкнений, а ТБ має показувати вибір головного екрана; якщо лаунчер вимкнено, спершу запустіть скрипт відновлення.</string>
     <string name="launcher_settings">Налаштування лаунчера</string>
     <string name="columns_label">Програм у рядку</string>
-    <string name="animations_state">Анімація: %1$s</string>
     <string name="advanced_effects">Додаткові ефекти</string>
-    <string name="advanced_effects_state">Додаткові ефекти: %1$s</string>
     <string name="advanced_effects_warning">Додає підняту плитку, збільшення значка й плавні переходи кольору. Може збільшити використання пам\'яті; різниця залежить від вашого ТБ.</string>
-    <string name="follow_theme">Як у темі (скинути вибір на ТБ)</string>
     <string name="follow_theme_hint">Використовує поточну тему або вбудовані налаштування макета й анімації. Встановлення чи скидання теми також скасовує вибір, зроблений на ТБ.</string>
     <string name="tv_settings">Системні налаштування ТБ</string>
     <string name="quick_picture">Екран</string>
@@ -63,7 +59,6 @@
     <string name="quick_apps_hint">Увімкнути знову</string>
     <string name="on">Увімк.</string>
     <string name="off">Вимк.</string>
-    <string name="enable">Увімкнути</string>
     <string name="input_key_service_description">Відкриває вибір джерела, коли на пульті натиснуто кнопку Input.</string>
     <string name="home_key_name">Кнопка «Додому»</string>
     <string name="home_key_description">Кнопка «Додому» на пульті відкриває цей лаунчер.</string>
@@ -86,9 +81,6 @@
     <string name="card_state_new">Нова</string>
     <string name="card_state_new_key">Новий ключ</string>
     <string name="card_state_new_label">Нова назва</string>
-    <string name="dock_edit">Змінити док</string>
-    <string name="dock_edit_hint">Виберіть місце в доку й натисніть OK. «Назад» — завершити.</string>
-    <string name="dock_edit_pick_app">Тепер виберіть програму для цього місця й натисніть OK. «Назад» — вибрати інше місце.</string>
     <string name="reorder">Упорядкувати програми</string>
     <string name="reorder_hint">Стрілки переміщують програму, OK ставить її сюди, «Назад» повертає на старе місце.</string>
     <string name="reorder_not_saved">Не вдалося зберегти новий порядок</string>
@@ -98,7 +90,6 @@
     <string name="live_badge">НАЖИВО</string>
     <!-- Self-update (Updater): the Settings menu row, the offer over Home once a build is downloaded, and the failure. -->
     <string name="update_to">Оновити до %s</string>
-    <string name="update_offer">Доступне оновлення лаунчера %s. Налаштування й плитки збережуться.</string>
     <string name="update_now">Оновити</string>
     <string name="update_later">Пізніше</string>
     <string name="update_failed">Не вдалося встановити оновлення</string>
@@ -222,7 +213,6 @@
     <string name="add_to_home_hint">Додайте програму з бібліотеки на головний екран.</string>
     <string name="reorder_settings_hint">Переставте програми на головному екрані в зручному порядку.</string>
     <string name="module_cards_hint">Картки, які модулі додають на головний екран.</string>
-    <string name="shelf_open_app">Відкрити</string>
     <string name="settings_section_account">Акаунт</string>
     <string name="account">Акаунт</string>
     <string name="account_row_hint">За бажанням. Увійди з поштою і PIN-кодом — і всі твої телевізори матимуть однаковий Home: плитки, їх порядок, полицю, канали й додатки.</string>
